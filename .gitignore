@@ -1,0 +1,18 @@
+# Dependencies
+/node_modules
+
+# Environment variables
+# Ignore the .env file in the src directory to keep sensitive data like API keys out of version control.
+/src/.env
+
+# Logs
+# Logs are project-specific and should not be versioned.
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS-generated files
+# These files are specific to the user's operating system and should not be committed.
+.DS_Store
+Thumbs.db
