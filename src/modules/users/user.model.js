@@ -9,6 +9,10 @@ const userSchema=new mongoose.Schema({
         required:true,
         unique:true
     },
+    balance:{
+        type:Number,
+        default:0
+    },
     password:{
         type:String,
         required:true
@@ -17,10 +21,17 @@ const userSchema=new mongoose.Schema({
         type:String,
         default:""
     },
-    bio:{
+    isBlocked:{
+      status:{
+        type:Boolean,
+        default:false
+      },
+      reason:{
         type:String,
         default:""
+      }
     },
+
     role:{
         type:String,
         enum:["Labeler","Client","admin"],
@@ -28,6 +39,17 @@ const userSchema=new mongoose.Schema({
     
     },
 
+    isSuspended:{
+      status:{
+        type:Boolean,
+        default:false
+      },
+      reason:{
+        type:String,
+        default:""
+      }
+    },
+ 
        // Account status
     isVerified: {
       type: Boolean,
@@ -54,6 +76,24 @@ const userSchema=new mongoose.Schema({
     deletedAt: {
       type: Date,
       default: null,
+    },
+    userLocation:{
+        country:{
+            type:String,
+            default:""
+        },
+        city:{
+            type:String,
+            default:""
+        },
+        state:{
+            type:String,
+            default:""
+        },
+        locationUpdatedAt:{
+            type:Date,
+            default:Date.now
+        }
     },
   },{
     timestamps:true

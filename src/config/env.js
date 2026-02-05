@@ -11,7 +11,9 @@ const env = {
     NODE_ENV: process.env.NODE_ENV,
     jwt_secret: process.env.JWT_SECRET,
     jwt_refresh_secret: process.env.JWT_REFRESH_SECRET,
-    
+    flutterwave_key: process.env.FLUTTERWAVE_KEY,
+    flutterwave_secret: process.env.FLUTTERWAVE_SECRET,
+
   
 };
 

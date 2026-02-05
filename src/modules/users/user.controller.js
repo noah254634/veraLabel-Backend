@@ -1,52 +1,81 @@
-import UserVera from "./user.model.js";
-import { validateSignupDto,validateLoginDto } from "./user.dto.js";
-import { createUser,loginUser } from "./user.service.js";
-import { generateAccessToken,generateRefreshToken,setAuthCookies,clearAuthCookies } from "./user.auth.js";
+import { UserService } from "./user.service.js";
 
-export const signUpcontroller = async (req, res) => {
-  try {
-    const dto = validateSignupDto(req.body);
-    const user = await createUser(dto);
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
-    setAuthCookies(res, accessToken, refreshToken);
-    return res.status(201).json({
-      message: "User created successfully",
-      user,
-    });
-  } catch (err) {
-    return res.status(400).json({ error: err.message });
-  }
-};
-export const getUserController = async (req, res) => {
-    const users=await UserVera.find();
-    return res.status(200).json({
-        users
-    })
-
-};
-export const loginController = async (req, res) => {
+export const UserController = {
+  getUsersByCity: async (req, res) => {
     try {
-    const dto = validateLoginDto(req.body);
-    const user=await loginUser(dto);
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
-    setAuthCookies(res, accessToken, refreshToken);
-    return res.status(200).json({
-        message: "User logged in successfully",
-        user,
-      });
-    
+        const {city}=req.body;
+        const users = await UserService.getUserByCity(city);
+        return res.json(users);
+    } catch (err) {
+        return res.status(400).json({ message: err.message });
     }
-    
-    catch(err){
-        return res.status(400).json({ error: err.message });
+  },
+  getUserById: async (req, res) => {
+    try{
+        const user=await UserService.getUserById(req.params.id);
+        return res.json(user);
+    }catch(err){
+        return res.status(400).json({message:err.message});
     }
+  },
+  updateUser: async (req, res) => {
+    try{
+        const user=await UserService.updateUser(req.params.id,req.body);
+        return res.json(user);
+    }catch(err){}
+  },
+  suspendUser: async (req, res) => {
+    const {id}=req.params;
+    const {reason}=req.body;
+    const user=await UserService.suspendUserById(id,reason);
+    return res.json(user);
+  },
+  deleteUser: async (req, res) => {
+    const {id}=req.params;
+    const user=await UserService.deleteUserById(id);
+    return res.json(user);
+  },
+  getAllUsers: async (req, res) => {
+    const users=await UserService.getAllUsers();
+    return res.json(users);
+  },
+  getUsersByRole: async (req, res) => {
+    const users=await UserService.getUserByRole(req.query.role);
+    return res.json(users);
+  },
+  getUsersByStatus: async (req, res) => {
+    const users=await UserService.getUserByStatus(req.query.status);
+    return res.json(users);
+  },
+  getUsersByTrustScore: async (req, res) => {
+    const {score}=req.body;
+    const users=await UserService.getUserByTrustScore(score);
+    return res.json(users);
+  },
+  suspendUser: async (req, res) => {
+    const {id}=req.params;
+    const {reason}=req.body;
+    const user=await UserService.suspendUserById(id,reason);
+    return res.json(user);
+  },
+  unsuspendUser: async (req, res) => {
+    const {id}=req.params;
+    const user=await UserService.unsuspendUserById(id);
+    return res.json(user);
+  },
+  deleteUser: async (req, res) => {},
+  getUserByEmail: async (req, res) => {},
+  
+  blockUser: async (req, res) => {
+    const {id}=req.params;
+    const {reason}=req.body;
+    const user=await UserService.blockUserById(id,reason);
+    return res.json(user);
+  },
+  unblockUserById: async (req, res) => {
+    const {id}=req.params;
+    const user=await UserService.unblockUserById(id);   
+  },
 
 };
-export const logoutController = async (req, res) => {
-    clearAuthCookies(res);
-    return res.status(200).json({
-      message: "User logged out successfully",
-    });
-};
+
