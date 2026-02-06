@@ -35,6 +35,8 @@ export const loginController = async (req, res) => {
         return res.status(400).json({error:err.message});
     }
 }
+  
+
 export const logoutController=(req,res)=>{
     clearAuthCookies(res);
     return res.status(200).json({
