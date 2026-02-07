@@ -44,7 +44,12 @@ const paymentSchema = new mongoose.Schema(
     purpose: {
       type: String,
       enum: ['dataset_purchase', 'subscription', 'credits', 'custom_job'],
+      default:"dataset_purchase",
       required: true
+    },
+    redirectUrl:{
+      type:String,
+      default:""
     },
 
     metadata: {

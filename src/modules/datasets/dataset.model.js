@@ -34,13 +34,29 @@ const datasetSchema=new mongoose.Schema({
         enum:["image","text","audio","video"],
         default:"image"
     },
+    status:{
+        type:String,
+        enum:["pending","approved","rejected"],
+        default:"pending"
+    },  
     datasetFormat:{
         type:String,
         enum:["csv","json","xml","excel"],
         default:["json"],
         required:true
     
-    }
+    },
+    isFlagged:{
+        status:{
+            type:Boolean,
+            default:false
+        },
+        reason:{
+            type:String,
+            default:""
+        }
+    },
+
     
 },{
     timestamps:true

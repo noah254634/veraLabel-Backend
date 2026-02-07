@@ -4,7 +4,7 @@ export const PaymentController = {
   createPayment: async (req, res) => {
     try {
       const { amount, currency, redirectUrl } = req.body
-      const result = await PaymentService.createPayment({ user: req.user, amount, currency, redirectUrl })
+      const result = await PaymentService.createPayment({user: req.user._id, amount, currency, redirectUrl })
       return res.json(result)
     } catch (err) {
       return res.status(400).json({ message: err })

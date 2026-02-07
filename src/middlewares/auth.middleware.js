@@ -3,6 +3,7 @@ import UserVera from "../modules/users/user.model.js";
 import { sendAccessToken } from "../modules/auth/auth.service.js";
 import { ENV } from "../config/env.js";
 export const protectRoute = async (req, res, next) => {
+  try{
   const token = req.cookies.accessToken;
   const refreshTok = req.cookies.refreshToken;
   if (!token && refreshTok) {
@@ -23,4 +24,7 @@ export const protectRoute = async (req, res, next) => {
 
   req.user = findUser;
   next();
+}catch(err){
+  return res.status(401).json({error:err.message});
+}
 };

@@ -31,8 +31,20 @@ export const sendAccessToken=async(req,res)=>{
 
 
     const accessToken=jwt.sign({id:user._id,role:user.role},ENV().jwt_secret,{expiresIn:"10m"});
-    setAuthCookies(res,accessToken,refreshToken);
-    return accessToken;
+    const newAccessCookie=()=>{res.cookie("accessToken",accessToken,{
+        sameSite:"strict",
+        httpOnly:true,
+        secure:ENV().node_env==="production",
+        maxAge:10*60*1000,
+
+
+
+
+
+    });
+}
+    //setAuthCookies(res,accessToken,refreshToken);
+    return newAccessCookie();
     }catch(err){
         console.log("An error occurred in sending refreshToken in service",err.message)
         return res.status(401).json({error:err.message})

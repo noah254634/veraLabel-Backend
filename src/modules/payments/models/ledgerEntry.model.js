@@ -55,4 +55,4 @@ const ledgerEntrySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model('LedgerEntry', ledgerEntrySchema);
+export default mongoose.model('LedgerEntry', ledgerEntrySchema);

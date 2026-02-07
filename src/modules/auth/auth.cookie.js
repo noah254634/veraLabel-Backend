@@ -23,7 +23,7 @@ export const setAuthCookies = (res, accessToken, refreshToken) => {
     httpOnly: true,
     secure: ENV().node_env=== "production",
     sameSite: "strict",
-    maxAge: 15 * 60 * 1000,
+    maxAge: 10 * 60 * 1000,
   });
 
   res.cookie("refreshToken", refreshToken, {

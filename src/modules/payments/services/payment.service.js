@@ -4,7 +4,7 @@ import { PaymentProvider } from '../payment.provider.js'
 export const PaymentService = {
   createPayment: async ({ user, amount, currency, redirectUrl }) => {
     const payment = await Payment.create({
-      user: user._id,
+      payerUserId: user._id,
       amount,
       currency,
       provider: 'flutterwave',
