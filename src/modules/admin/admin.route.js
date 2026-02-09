@@ -3,6 +3,7 @@ import analyticsController from "../analytics/analytics.controller.js";
 import authorize from "../../middlewares/authorization.middleware.js";
 import { adminController } from "./admin.controller.js";
 const router=express.Router();
+router.use(authorize("admin"));
 router.get("/users",()=>{});                     // list users (filters, pagination)
 router.get("/users/:id",()=>{}); 
                 // inspect a user
@@ -22,6 +23,7 @@ router.put("/datasets/:id/reject",adminController.rejectDataset);
 router.put("/datasets/:id/flag",adminController.flagDataset);
 router.put("/datasets/:id/unflag",adminController.unflagDataset);
 router.delete("/datasets/:id",adminController.deleteDataset);
+router.put("/setDatasetprice/:id",adminController.updateDatasetPrice)
 /*
 
 router.get("/payments");

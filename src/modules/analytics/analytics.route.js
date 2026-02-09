@@ -1,6 +1,6 @@
 import express from "express";
 const router=express.Router();
-router.get("/users/summary");          // total, active, growth
+router.get("/platformOverview",analyticsController.overview);          // total, active, growth
 router.get("/users/registrations");   // per day/week/month
 router.get("/users/activity");        // DAU / MAU
 router.get("/users/retention");       // cohort analysis

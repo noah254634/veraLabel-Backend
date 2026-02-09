@@ -5,7 +5,7 @@ const analyticsService = {
   overview: async () => {
        const now = new Date();
     const startOfToday = new Date(now.setHours(0, 0, 0, 0));
-    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const startOfMonth = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), 1));
 
     // Run in parallel
     const [
@@ -13,6 +13,8 @@ const analyticsService = {
       newUsersToday,
       newUsersThisMonth,
       totalDatasets,
+      approvedDatasets,
+      rejectedDatasets,
       pendingDatasets,
       revenueThisMonth
     ] = await Promise.all([
@@ -20,10 +22,18 @@ const analyticsService = {
       UserVera.countDocuments({ createdAt: { $gte: startOfToday } }),
       UserVera.countDocuments({ createdAt: { $gte: startOfMonth } }),
       Dataset.countDocuments(),
+      Dataset.countDocuments({ status: "approved" }),
+      Dataset.countDocuments({ status: "rejected" }),
       Dataset.countDocuments({ status: "pending" }),
       Payment.aggregate([
-        { $match: { status: "success", createdAt: { $gte: startOfMonth } } },
-        { $group: { _id: null, total: { $sum: "$amount" } } }
+        { $match:
+           { status: "success",
+             createdAt: { $gte: startOfMonth } }
+             },
+        { $group: {
+           _id: null, 
+           total: { $sum: "$amount" } }
+           }
       ])
     ]);
 
@@ -35,7 +45,9 @@ const analyticsService = {
       },
       datasets: {
         total: totalDatasets,
-        pending: pendingDatasets
+        pending: pendingDatasets,
+        approved: approvedDatasets,
+        rejected: rejectedDatasets
       },
       revenue: {
         thisMonth: revenueThisMonth[0]?.total || 0

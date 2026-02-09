@@ -1,5 +1,17 @@
 import { adminService } from "./admin.service.js";
 export const adminController = {
+  updateDatasetPrice: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { price } = req.body;
+      if (!price) throw new Error("Price not found");
+      const newPrice=parseInt(price);
+      const dataset = await adminService.updateDatasetPrice(id, newPrice);
+      return res.json(dataset);
+    }catch(err){
+      return res.status(400).json({message:err.message});
+    }
+  },
   pendingDatasets: async (req, res) => {
     try {
     const datasets = await adminService.pendingDatasets();

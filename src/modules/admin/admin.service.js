@@ -2,6 +2,11 @@ import mongoose from "mongoose";
 import Dataset from "../datasets/dataset.model.js";
 import UserVera from "../users/user.model.js";
 export const adminService={
+    updateDatasetPrice:async(id,newPrice)=>{
+        if(!id) throw new Error("Id not found");
+        if(!newPrice) throw new Error("Price not found");
+        const dataset=await Dataset.findByIdAndUpdate(id,{price:newPrice},{new:true});
+    },
     pendingDatasets: async () => {
         const datasets=await Dataset.find({status:"pending"});
         if(!datasets) throw new Error("No pending datasets found");

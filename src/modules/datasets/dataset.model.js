@@ -42,12 +42,12 @@ const datasetSchema=new mongoose.Schema({
     datasetFormat:{
         type:String,
         enum:["csv","json","xml","excel"],
-        default:["json"],
+        default:"json",
         required:true
     
     },
     isFlagged:{
-        status:{
+        flagged:{
             type:Boolean,
             default:false
         },
