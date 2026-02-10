@@ -14,6 +14,7 @@ router.get("/usersByTrustScore",UserController.getUsersByTrustScore);
 router.get("/usersByCity",UserController.getUsersByCity);
 router.get("/usersbyScore",UserController.getUsersByTrustScore);
 router.get("/getUserById/:id",UserController.getUserById);
+router.get("/getUserDatasets/",UserController.getUserDatasets);
 
 export default router;
 

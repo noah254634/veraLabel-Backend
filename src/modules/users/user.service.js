@@ -1,7 +1,12 @@
 import mongoose from "mongoose";
 import UserVera from "./user.model.js";
 export const UserService = {
-
+  getUserDatasets: async (id) => {
+    if(!id) throw new Error("Id not found");
+    if(!mongoose.Types.ObjectId.isValid(id)) throw new Error("Invalid user id");
+    const datasets = await Dataset.find({ datasetLabeler: id });
+    return datasets;
+  },
   getUserById: async (id) => {
     const user = await UserVera.findById(id);
     if (!user) throw new Error("User not found");

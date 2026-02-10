@@ -1,7 +1,15 @@
 import { UserService } from "./user.service.js";
 
 export const UserController = {
-
+  getUserDatasets: async (req, res) => {
+    try{
+      const id=req.user._id;
+      const datasets=await UserService.getUserDatasets(id);
+      return res.json(datasets);
+    }catch(err){
+        return res.status(400).json({message:err.message});
+    }
+  },
   getUsersByCity: async (req, res) => {
     try {
         const {city}=req.body;

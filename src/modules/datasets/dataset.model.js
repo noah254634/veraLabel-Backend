@@ -8,6 +8,15 @@ const datasetSchema=new mongoose.Schema({
         type:String,
         required:true
     },
+    version:{
+        type:Number,
+        default:1,
+        required:true
+    },
+    size:{
+        type:Number,
+        required:false
+    },
     price:{
         type:Number,
         required:true
@@ -36,7 +45,7 @@ const datasetSchema=new mongoose.Schema({
     },
     status:{
         type:String,
-        enum:["pending","approved","rejected"],
+        enum:["pending","approved","taken_down","rejected"],
         default:"pending"
     },  
     datasetFormat:{
@@ -56,7 +65,10 @@ const datasetSchema=new mongoose.Schema({
             default:""
         }
     },
-
+    filePath:{
+        type:String,
+        required:false
+    }
     
 },{
     timestamps:true
