@@ -1,7 +1,9 @@
 import { all } from "axios";
 
 const authorize=(...allowedRoles)=>{
+
     return (req,res,next)=>{
+        try{
         const userRole=req.user.role;
         if(!userRole){
             return res.status(401).json({error:"Unauthorized"});
@@ -13,7 +15,11 @@ const authorize=(...allowedRoles)=>{
             req.user.role=userRole;
             next();
         }
+        }catch(err){
+            return res.status(401).json({error:err.message});
+        }
 
     }
+
 };
 export default authorize;

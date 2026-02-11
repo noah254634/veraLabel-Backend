@@ -63,7 +63,7 @@ export const adminService={
     if (!id) throw new Error("Id not found");
     const user = await UserVera.findByIdAndUpdate(
       id,
-      { "isBlocked.status": false },
+      { "isBlocked.status": false,"isBlocked.reason":"" },
       { new: true },
     );
     if (!user) throw new Error("User not found");

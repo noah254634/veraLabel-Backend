@@ -6,14 +6,13 @@ import { userRouter } from "./modules/users/user.route.js";
 import { checkisBlocked } from "./middlewares/block.middleware.js";
 import { protectRoute } from "./middlewares/auth.middleware.js";
 import adminRouter from "./modules/admin/admin.route.js";
+import marketplaceRouter from "./modules/marketplace/marketplace.route.js";
 import datasetRouter from "./modules/datasets/dataset.route.js";
 const router=express.Router();
-router.post("/datasets",protectRoute,checkisBlocked,(req,res)=>{
-    return res.status(200).json({message:"you just hit this route"})
-});
+router.use("/marketplace",protectRoute,checkisBlocked,authorize("admin"),marketplaceRouter)
 router.use("/datasets",datasetRouter);
 router.use("/auth",authRouter);
 router.use("/payments",paymentRouter)
 router.use("/users",userRouter);
-router.use("/admin",authorize("admin"),adminRouter);
+router.use("/admin",protectRoute,authorize("admin"),adminRouter);
 export default router;

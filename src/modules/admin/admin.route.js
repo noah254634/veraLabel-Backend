@@ -15,6 +15,7 @@ router.put("/users/:id/promote",adminController.promoteUser);          // user â
 router.put("/users/:id/demote",adminController.demoteUser);           // admin â†’ user
 //router.put("/users/:id/assign-role",adminController.assignRole);      // generic RBAC
 router.get("/datasets/pending",adminController.pendingDatasets);
+router.put("/users/:id/unblock",adminController.unblockUser);
 router.get("/datasets/approved",adminController.approvedDatasets);
 router.get("/datasets/rejected",adminController.rejectedDatasets);
 router.get("/datasets/flagged",adminController.flaggedDatasets);           
