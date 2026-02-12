@@ -1,7 +1,24 @@
 import UserVera  from "../users/user.model.js";
+import Order from "../marketplace/order.model.js";
 import Dataset from "../datasets/dataset.model.js";
 import Payment from "../payments/models/payment.model.js";
 const analyticsService = {
+  ordersReceived: async () => {
+    const [orders,succesfulOrders,failedOrders,pendingOrders]= await Promise.all([
+      Order.countDocuments(),
+      Order.countDocuments({status:"success"}),
+      Order.countDocuments({status:"failed"}),
+      Order.countDocuments({status:"pending"})    
+    ])
+   return {
+    orderOverview:{
+    total:orders,
+    succesful:succesfulOrders,
+    failed:failedOrders,
+    pending:pendingOrders
+   }     
+  } 
+  },
   overview: async () => {
        const now = new Date();
     const startOfToday = new Date(now.setHours(0, 0, 0, 0));

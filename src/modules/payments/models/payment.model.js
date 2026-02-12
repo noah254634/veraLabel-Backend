@@ -2,15 +2,21 @@ import mongoose from "mongoose";
 
 const paymentSchema = new mongoose.Schema(
   {
+    order: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Order',
+      required: true
+    },
+
     payerUserId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'UserVera',
       required: true
     },
 
     provider: {
       type: String,
-      enum: ['paystack', 'stripe'],
+      enum: ['paystack', 'stripe', 'flutterwave'],
       required: true
     },
 
@@ -69,3 +75,4 @@ const paymentSchema = new mongoose.Schema(
 );
 
 export default mongoose.model('Payment', paymentSchema);
+

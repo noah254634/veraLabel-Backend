@@ -1,5 +1,10 @@
 import mongoose from "mongoose"
 export const orderSchema=new mongoose.Schema({
+    reference:{
+        type:String,
+        required:true,
+        unique:true
+    },
     buyer:{
         type:mongoose.Schema.Types.ObjectId,
         ref:"UserVera",
@@ -18,7 +23,8 @@ export const orderSchema=new mongoose.Schema({
     },
     totalPrice:{
         type:Number,
-        required:true
+        required:true,
+        default:0
     }
 
 },{timestamps:true})

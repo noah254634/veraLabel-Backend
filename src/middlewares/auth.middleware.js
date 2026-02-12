@@ -2,8 +2,10 @@ import jwt from "jsonwebtoken";
 import UserVera from "../modules/users/user.model.js";
 import { sendAccessToken } from "../modules/auth/auth.service.js";
 import { ENV } from "../config/env.js";
+import logger from "../config/logger.js";
 export const protectRoute = async (req, res, next) => {
   try{
+    logger.info("Protecting route, verifying user authentication");
   const token = req.cookies.accessToken;
   const refreshTok = req.cookies.refreshToken;
   if (!token && refreshTok) {

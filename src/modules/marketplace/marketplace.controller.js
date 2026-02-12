@@ -13,7 +13,18 @@ export const marketplaceController={
         }
 
     },
-    alldatasets:async(req,res)=>{
+    unpublishDataset:async(req,res)=>{
+        try{
+            const {id}=req.params;
+            const response=await marketplaceService.unpublishDataset(id);
+            return res.status(200).json({response});
+
+        }catch(err){
+            return res.status(500).json({message:err.message})
+
+        }
+    },
+    alldatasets:async(_,res)=>{
         try{
             const datasets=await marketplaceService.alldatasets()
             return res.status(200).json({datasets});
@@ -24,7 +35,7 @@ export const marketplaceController={
     },
        getVerifiedDataset:async(req,res)=>{
         try{
-            const datasets=await marketplaceService.getVerifiedDataset()
+            const datasets=await marketplaceService.getVerifiedDatasets()
             return res.status(200).json({datasets});
 
         }catch(err){

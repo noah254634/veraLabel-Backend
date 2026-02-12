@@ -1,9 +1,11 @@
 import { all } from "axios";
+import logger from "../config/logger.js";
 
 const authorize=(...allowedRoles)=>{
 
     return (req,res,next)=>{
         try{
+            logger.info("Authorizing user for roles: " + allowedRoles.join(", "));
         const userRole=req.user.role;
         if(!userRole){
             return res.status(401).json({error:"Unauthorized"});
