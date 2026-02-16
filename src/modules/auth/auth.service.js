@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import {ENV} from "../../config/env.js";
 import jwt from "jsonwebtoken";
 import { setAuthCookies } from "./auth.cookie.js";
+import logger from "../../config/logger.js";
 export const createUser=async({email,name,password})=>{
     if(!email || !name || !password) throw new Error("All fields are required");
     const existingUser=await UserVera.findOne({email});
@@ -14,7 +15,8 @@ export const createUser=async({email,name,password})=>{
 
 }
 export const loginUser=async({email,password})=>{
-    if(!email || !password) throw new Error("All fields are required");
+    logger.info(`Login attempt for user: ${email}`);
+    if(!email || !password) throw new Error(`All fields are required `);
     const user=await UserVera.findOne({email});
     if(!user) throw new Error("User not found");
     const isMatch=await bcrypt.compare(password,user.password);

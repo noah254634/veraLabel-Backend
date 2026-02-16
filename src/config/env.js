@@ -13,6 +13,8 @@ const env = {
     jwt_refresh_secret: process.env.JWT_REFRESH_SECRET,
     flutterwave_key: process.env.FLUTTERWAVE_KEY,
     flutterwave_secret: process.env.FLUTTERWAVE_SECRET,
+    resend_api_key: process.env.RESEND_API_KEY,
+    email_user: process.env.EMAIL_USER,
 
   
 };
