@@ -24,7 +24,7 @@ export default verifyResetToken;
 
 
 
-const generateResetToken = async (user) => {
+export const generateResetToken = async (user) => {
   // 1. Create random token
   const resetToken = crypto.randomBytes(32).toString("hex");
 
@@ -40,4 +40,3 @@ const generateResetToken = async (user) => {
   return resetToken;
 };
 
-module.exports = generateResetToken;

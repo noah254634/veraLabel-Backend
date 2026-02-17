@@ -1,5 +1,6 @@
 import logger from "../../config/logger.js";
 import mailService from "./mailService.js";
+//ignored this file as it is not being used anywhere in the codebase. were calling functions directly in the mailService
 const mailController = {
   sendWelcomeEmail: async (req,res) => {
     try {
@@ -27,7 +28,19 @@ const mailController = {
             return res.status(400).json({ message: err.message });
         }
   },
-  sendVerificationEmail: async (req, res) => {},
+  sendVerificationEmail: async (req, res) => {
+      try {
+        const { email, username } = req.body;
+        if (!email || !username)
+          throw new Error("Email and username are required");
+        await mailService.sendVerificationEmail(email, username);
+        logger.info(`Verification email sent to ${email}`);
+        return res.status(200).json({ message: "Verification email sent successfully" });
+      }catch(err){
+        logger.error(`Error sending verification email: ${err.message}`);
+        return res.status(400).json({ message: err.message });
+      }
+  },
   sendPaymentConfirmationEmail: async (req, res) => {
     try{
       logger.info("Sending payment confirmation email");
