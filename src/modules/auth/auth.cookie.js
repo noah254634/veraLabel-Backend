@@ -21,7 +21,7 @@ export const generateRefreshToken = (user) => {
 export const setAuthCookies = (res, accessToken, refreshToken) => {
   res.cookie("accessToken", accessToken, {
     httpOnly: true,
-    secure: ENV().node_env=== "production",
+    secure: ENV().node_env === "production",
     sameSite: "strict",
     maxAge: 10 * 60 * 1000,
   });

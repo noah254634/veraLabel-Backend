@@ -1,5 +1,4 @@
 import express from "express";
-import cors from "cors";
 import {ENV} from "./config/env.js";
 import connectDB from "./config/connectingDB.js";
 import app from "./app.js";
@@ -8,11 +7,9 @@ import logger from "./config/logger.js";
 
 
 const port=ENV().PORT||3000;
-app.use(cors());
 const server=app.listen(port,()=>{
     logger.info(`server running on http://localhost:${port}`);
     connectDB();
-
 });
 //ERROR HANDLING AND CLOSING OF SERVER
 const shutdown=async(signal)=>{

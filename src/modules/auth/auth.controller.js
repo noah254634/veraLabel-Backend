@@ -20,6 +20,7 @@ signup:async (req, res) => {
       user,
     });
   } catch (err) {
+    logger.error(`Error in signup: ${err.message}`);
     return res.status(400).json({ error: err.message });
   }
 },
@@ -27,17 +28,18 @@ login:async (req, res) => {
     try{
         const dto = validateLogin(req.body);
         logger.info({ email: dto.email }, "Login attempt");
-        const user=await loginUser(dto);
+        const user=await authService.loginUser(dto);
         const accessToken=generateAccessToken(user);
         const refreshToken=generateRefreshToken(user);
         setAuthCookies(res,accessToken,refreshToken);
-        await mailService.sendWelcomeEmail(user.email, user.name);
+        //await mailService.sendWelcomeEmail(user.email, user.name);
         logger.info(`User ${user.email} logged in successfully`);
         return res.status(200).json({
             message:"User logged in successfully",
             user
         })
     }catch(err){
+        logger.error(`Error in login: ${err}`);
         return res.status(400).json({error:err.message});
     }
 },

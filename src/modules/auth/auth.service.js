@@ -20,11 +20,11 @@ export const authService = {
   loginUser: async ({ email, password }) => {
     logger.info(`Login attempt for user: ${email}`);
     if (!email || !password) throw new Error(`All fields are required `);
-    const user = await UserVera.findOne({ email });
+    const user = await UserVera.findOne({ email }).select("+password");
     if (!user) throw new Error("User not found");
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) throw new Error("Invalid password");
-    if(!user.isVerified) throw new Error("Email not verified. Please verify your email before logging in.");
+    //if(!user.isVerified) throw new Error("Email not verified. Please verify your email before logging in.");
     return user;
   },
   sendAccessToken: async (req, res) => {
@@ -65,7 +65,7 @@ export const authService = {
     const user = await UserVera.findOne({ email });
     if (!user) throw new Error("User not found");
     const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-    const resetTokenDoc = await resetPassword.findOne({
+    const resetTokenDoc = await ResetPassword.findOne({
       email,
       token: hashedToken,
       expiresAt: { $gt: Date.now() },
