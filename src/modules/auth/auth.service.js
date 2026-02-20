@@ -6,6 +6,7 @@ import mailService from "../mailer/mailService.js";
 import { setAuthCookies } from "./auth.cookie.js";
 import logger from "../../config/logger.js";
 import ResetPassword from "./resetPassword.model.js";
+import crypto from "crypto";
 export const authService = {
   createUser: async ({ email, name, password }) => {
     if (!email || !name || !password)

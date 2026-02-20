@@ -7,7 +7,6 @@ import logger from "../../config/logger.js";
 export const authController={
 signup:async (req, res) => {
   try {
-    logger.info(`Details:${JSON.stringify(req.body)} Signup attempt`);
     const dto = validateSignup(req.body);
     logger.info({ email: dto.email }, "Signup attempt");
     const user = await authService.createUser(dto);
@@ -39,7 +38,7 @@ login:async (req, res) => {
             user
         })
     }catch(err){
-        logger.error(`Error in login: ${err}`);
+        logger.error(`Error in login: ${err.message}`);
         return res.status(400).json({error:err.message});
     }
 },
