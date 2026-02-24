@@ -13,7 +13,7 @@ export const protectRoute = async (req, res, next) => {
     if (!decoded) return res.status(401).json({ error: "Unauthorized" });
     const findUser = await UserVera.findById(decoded.id);
     if (!findUser) return res.status(401).json({ error: "Unauthorized" });
-    await sendAccessToken(req, res);
+    await authService.sendAccessToken(req, res);
     req.user = findUser;
     next();
    return;

@@ -3,19 +3,22 @@ import analyticsController from "../analytics/analytics.controller.js";
 import authorize from "../../middlewares/authorization.middleware.js";
 import { adminController } from "./admin.controller.js";
 const router=express.Router();
-router.use(authorize("admin"));
+router.use(authorize("admin"))
 router.get("/users",()=>{});                     // list users (filters, pagination)
 router.get("/users/:id",()=>{}); 
                 // inspect a user
-router.get("/analytics/overview",authorize("admin"),analyticsController.overview)
+router.get("/analytics/overview",analyticsController.overview)
 router.put("/users/:id/suspend",adminController.suspendUser);         // temporary ban
 router.put("/users/:id/ban",adminController.banUser);             // permanent ban
+router.put("/users/:id/block",adminController.blockUser);        // block/unblock pair
 //router.delete("/users/:id",adminController.deleteUser);              // hard delete (rare)
 router.put("/users/:id/promote",adminController.promoteUser);          // user → admin / moderator
 router.put("/users/:id/demote",adminController.demoteUser);           // admin → user
 //router.put("/users/:id/assign-role",adminController.assignRole);      // generic RBAC
 router.get("/datasets/pending",adminController.pendingDatasets);
 router.put("/users/:id/unblock",adminController.unblockUser);
+router.put("/users/:id/block",adminController.blockUser);
+router.put("/users/:id/unsuspend",adminController.unsuspendUser);
 router.get("/datasets/approved",adminController.approvedDatasets);
 router.get("/datasets/rejected",adminController.rejectedDatasets);
 router.get("/datasets/flagged",adminController.flaggedDatasets);           
@@ -25,6 +28,12 @@ router.put("/datasets/:id/flag",adminController.flagDataset);
 router.put("/datasets/:id/unflag",adminController.unflagDataset);
 router.delete("/datasets/:id",adminController.deleteDataset);
 router.put("/setDatasetprice/:id",adminController.updateDatasetPrice)
+router.post("/datasets/unpublish/:id",adminController.unpublishDataset)
+router.post("/datasets/publish/:id",adminController.publishDataset)
+router.put("/users/:id/rate",adminController.rateUser);
+router.put("/users/:id/unverify",adminController.unverifyUser);
+router.put("/users/:id/verify",adminController.verifyUser);
+
 /*
 
 router.get("/payments");

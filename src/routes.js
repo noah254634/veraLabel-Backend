@@ -12,9 +12,9 @@ import logger from "./config/logger.js";
 const router=express.Router();
 logger.info("Request started in route.js");
 router.use("/marketplace",protectRoute,checkisBlocked,authorize("admin","buyer"),marketplaceRouter)
-router.use("/datasets",datasetRouter);
+router.use("/datasets",protectRoute,checkisBlocked,authorize("admin","buyer","Labeler"),datasetRouter);
 router.use("/auth",authRouter);
-router.use("/payments",protectRoute,checkisBlocked,authorize("admin","buyer"),paymentRouter)
+router.use("/payments",protectRoute,checkisBlocked,authorize("admin","buyer","Labeler"),paymentRouter)
 router.use("/users",userRouter);
-router.use("/admin",protectRoute,authorize("admin"),adminRouter);
+router.use("/admin",protectRoute,checkisBlocked,adminRouter);
 export default router;

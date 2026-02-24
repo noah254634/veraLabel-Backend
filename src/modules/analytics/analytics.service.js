@@ -19,6 +19,14 @@ const analyticsService = {
    }     
   } 
   },
+  veraLabelsWorth:async()=>{
+    const worth=await Dataset.aggregate([
+      {$match:{isPublished:true},
+    $group:{
+      _id:null,amount:{$sum:price}}}
+    ])
+    return worth
+  },
   overview: async () => {
        const now = new Date();
     const startOfToday = new Date(now.setHours(0, 0, 0, 0));

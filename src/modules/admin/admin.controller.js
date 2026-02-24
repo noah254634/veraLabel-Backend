@@ -1,6 +1,60 @@
 import logger from "../../config/logger.js";
 import { adminService } from "./admin.service.js";
 export const adminController = {
+  verifyUser: async (req, res) => {
+    try {
+      logger.info("Verifying user");
+      const { id } = req.params;
+      const user = await adminService.verifyUserById(id);
+      return res.json(user);
+    }catch(err){
+      logger.error(`Error verifying user: ${err.message}`);
+      return res.status(400).json({ message: err.message });
+    }
+  },
+  unverifyUser: async (req, res) => {
+    try {
+      logger.info("Unverifying user");
+      const { id } = req.params;
+      const user = await adminService.unverifyUserById(id);
+      return res.json(user);
+    } catch (err) {
+      logger.error(`Error unverifying user: ${err.message}`);
+      return res.status(400).json({ message: err.message });
+    }
+  },
+  deleteUser: async (req, res) => {},
+  rateUser:async(req,res)=>{
+    logger.info("Rating User")
+    const {id}=req.params;
+    const {rate}=req.body;
+    const rating=parseInt(rate);
+    const user=await adminService.rateUser(id,rating);
+    return user
+  },
+  unpublishDataset: async (req, res) => {
+    try {
+      logger.info("Unpublishing dataset");
+      const { id } = req.params;
+      const dataset = await adminService.unpublishDatasetById(id);
+      return res.json(dataset);
+      } catch (err) {
+      logger.error(`Error unpublishing dataset: ${err.message}`);
+      return res.status(400).json({ message: err.message });
+    }
+  },
+publishDataset: async (req, res) => {
+  try {
+    logger.info("Publishing dataset");
+    const { id } = req.params;
+    logger.info(`Publishing dataset with id: ${id}`);
+    const dataset = await adminService.publishDatasetById(id);
+    return res.json(dataset);
+  }catch (err) {
+    logger.error(`Error publishing dataset: ${err.message}`);
+    return res.status(400).json({ message: err.message });
+  }
+},
   updateDatasetPrice: async (req, res) => {
     try {
       logger.info("Updating dataset price");
