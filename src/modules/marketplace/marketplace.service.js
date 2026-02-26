@@ -16,20 +16,29 @@ export const marketplaceService = {
     if (!dataset) throw new Error("No dataset with that Id in database");
     return dataset;
   },
-  createOrder: async (buyerId, datasetId, reference,totalPrice) => {
+  createOrder: async (buyerId, items, reference, totalPrice) => {
     const buyerExists = await UserVera.findById(buyerId);
     if (!buyerExists) throw new Error("Unauthorized access");
-    const datasetExistsAndPublished = await Dataset.findOne({
-      _id: datasetId,
-      isPublished: true,
-    });
-    if (!datasetExistsAndPublished)
+    for (const item of items) {
+      const datasetId = item.datasetId;
+      const datasetExistsAndPublished=await Dataset.findById({
+        _id: datasetId,
+        isPublished: true,
+      });
+      if (!datasetExistsAndPublished)
       throw new Error("Dataset not found or not published yet");
+
+    }
+
+    
     const order = await Order.create({
       reference,
       buyer: buyerId,
-      datasetId,
-      totalPrice,
+      items: items.map((item) => ({
+        datasetId: item.datasetId,
+        price: item.priceSnapshot,
+      })),
+      totalPrice:totalPrice,
       reference,
     });
     return order;

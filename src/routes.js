@@ -5,6 +5,7 @@ import { authRouter } from "./modules/auth/auth.route.js";
 import { userRouter } from "./modules/users/user.route.js";
 import { checkisBlocked } from "./middlewares/block.middleware.js";
 import { protectRoute } from "./middlewares/auth.middleware.js";
+import analyticsRouter from "./modules/analytics/analytics.route.js";
 import adminRouter from "./modules/admin/admin.route.js";
 import marketplaceRouter from "./modules/marketplace/marketplace.route.js";
 import datasetRouter from "./modules/datasets/dataset.route.js";
@@ -17,4 +18,5 @@ router.use("/auth",authRouter);
 router.use("/payments",protectRoute,checkisBlocked,authorize("admin","buyer","Labeler"),paymentRouter)
 router.use("/users",userRouter);
 router.use("/admin",protectRoute,checkisBlocked,adminRouter);
+router.use("/analytics",protectRoute,checkisBlocked,analyticsRouter);
 export default router;
