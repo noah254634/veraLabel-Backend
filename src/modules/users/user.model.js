@@ -45,8 +45,10 @@ const userSchema=new mongoose.Schema({
 
     role:{
         type:String,
-        enum:["Labeler","Client","admin"],
-        default:"Labeler"
+        enum:["labeler","buyer","admin"],
+        default:"labeler",
+        lowercase:true,
+        trim:true
     
     },
 

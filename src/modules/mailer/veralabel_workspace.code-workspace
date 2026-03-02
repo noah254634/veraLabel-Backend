@@ -7,5 +7,7 @@
 			"path": "../../../../veralabel-frontend"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "veralabel-frontend"
+	}
 }

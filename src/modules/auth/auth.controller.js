@@ -7,13 +7,14 @@ import logger from "../../config/logger.js";
 export const authController={
 signup:async (req, res) => {
   try {
+    logger.info(req.body)
     const dto = validateSignup(req.body);
     logger.info({ email: dto.email }, "Signup attempt");
     const user = await authService.createUser(dto);
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
     setAuthCookies(res, accessToken, refreshToken);
-    await mailService.sendWelcomeEmail(user.email, user.name);
+    //await mailService.sendWelcomeEmail(user.email, user.name);
     return res.status(201).json({
       message: "User created successfully",
       user,

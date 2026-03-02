@@ -4,8 +4,8 @@ import authorize from "../../middlewares/authorization.middleware.js";
 import { adminController } from "./admin.controller.js";
 const router=express.Router();
 router.use(authorize("admin"))
-router.get("/users",()=>{});                     // list users (filters, pagination)
-router.get("/users/:id",()=>{}); 
+// router.get("/users",()=>{});                     // list users (filters, pagination)
+// router.get("/users/:id",()=>{}); 
                 // inspect a user
 router.get("/analytics/overview",analyticsController.overview)
 router.put("/users/:id/suspend",adminController.suspendUser);         // temporary ban
@@ -17,7 +17,6 @@ router.put("/users/:id/demote",adminController.demoteUser);           // admin â
 //router.put("/users/:id/assign-role",adminController.assignRole);      // generic RBAC
 router.get("/datasets/pending",adminController.pendingDatasets);
 router.put("/users/:id/unblock",adminController.unblockUser);
-router.put("/users/:id/block",adminController.blockUser);
 router.put("/users/:id/unsuspend",adminController.unsuspendUser);
 router.get("/datasets/approved",adminController.approvedDatasets);
 router.get("/datasets/rejected",adminController.rejectedDatasets);

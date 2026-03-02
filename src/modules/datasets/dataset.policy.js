@@ -1,7 +1,7 @@
 export const datasetPolicy={
     canUpdate:async(req,res,next)=>{
         const role=req.user.role;
-        if(role==="Labeler"){
+        if(role==="labeler"){
             next();
         }
         else{
@@ -12,7 +12,7 @@ export const datasetPolicy={
     },
     canDelete:async(req,res,next)=>{
         const role=req.user.role;
-        if(!(role==="Labeler"||role==="Admin")){
+        if(!(role==="labeler"||role==="admin")){
             return res.status(401).json({
                 error:"You are not authorized to perform this action"
             })

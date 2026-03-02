@@ -218,7 +218,7 @@ export const adminService = {
 
     const user = await UserVera.findByIdAndUpdate(
       id,
-      { role: "Labeler" },
+      { role: "labeler" },
       { new: true },
     );
     if (!user) throw new Error("User not found");

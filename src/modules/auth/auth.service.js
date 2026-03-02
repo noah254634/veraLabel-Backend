@@ -8,13 +8,13 @@ import logger from "../../config/logger.js";
 import ResetPassword from "./resetPassword.model.js";
 import crypto from "crypto";
 export const authService = {
-  createUser: async ({ email, name, password }) => {
+  createUser: async ({ email, name, password,UserRole }) => {
     if (!email || !name || !password)
       throw new Error("All fields are required");
     const existingUser = await UserVera.findOne({ email });
     if (existingUser) throw new Error("User already exists");
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new UserVera({ email, name, password: hashedPassword });
+    const user = new UserVera({ email, name, password: hashedPassword,role:UserRole });
     await user.save();
     return user;
   },
