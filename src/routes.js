@@ -10,6 +10,7 @@ import adminRouter from "./modules/admin/admin.route.js";
 import marketplaceRouter from "./modules/marketplace/marketplace.route.js";
 import datasetRouter from "./modules/datasets/dataset.route.js";
 import logger from "./config/logger.js";
+import onboardinRouter from "./modules/onboarding/onboarding.route.js";
 const router=express.Router();
 logger.info("Request started in route.js");
 router.use("/marketplace",protectRoute,checkisBlocked,authorize("admin","buyer"),marketplaceRouter)
@@ -19,4 +20,5 @@ router.use("/payments",protectRoute,checkisBlocked,authorize("admin","buyer","la
 router.use("/users",userRouter);
 router.use("/admin",protectRoute,checkisBlocked,adminRouter);
 router.use("/analytics",protectRoute,checkisBlocked,analyticsRouter);
+router.use("/onboarding",onboardinRouter);
 export default router;
