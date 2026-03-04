@@ -28,37 +28,17 @@ export const authService = {
     //if(!user.isVerified) throw new Error("Email not verified. Please verify your email before logging in.");
     return user;
   },
-  sendAccessToken: async (req, res) => {
-    try {
-      const refreshToken = req.cookies.refreshToken;
-      if (!refreshToken)
-        throw new Error("Refresh token not found consider logging in again");
-      const decoded = jwt.verify(refreshToken, ENV().jwt_refresh_secret);
-      const user = await UserVera.findById(decoded.id);
-      if (!user) throw new Error("User not found");
+  refreshAccessToken: async (refreshToken) => {
+    if (!refreshToken) throw new Error("Refresh token not found");
+    const decoded = jwt.verify(refreshToken, ENV().jwt_refresh_secret);
+    const user = await UserVera.findById(decoded.id);
+    if (!user) throw new Error("User not found");
 
-      const accessToken = jwt.sign(
-        { id: user._id, role: user.role },
-        ENV().jwt_secret,
-        { expiresIn: "10m" },
-      );
-      const newAccessCookie = () => {
-        res.cookie("accessToken", accessToken, {
-          sameSite: "strict",
-          httpOnly: true,
-          secure: ENV().node_env === "production",
-          maxAge: 10 * 60 * 1000,
-        });
-      };
-      //setAuthCookies(res,accessToken,refreshToken);
-      return newAccessCookie();
-    } catch (err) {
-      console.log(
-        "An error occurred in sending refreshToken in service",
-        err.message,
-      );
-      return res.status(401).json({ error: err.message });
-    }
+    return jwt.sign(
+      { id: user._id, role: user.role },
+      ENV().jwt_secret,
+      { expiresIn: "10m" },
+    );
   },
   resetPassword: async (email, token, password) => {
     if (!email || !token || !password)

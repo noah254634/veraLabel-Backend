@@ -38,3 +38,12 @@ export const clearAuthCookies = (res) => {
   res.clearCookie("accessToken");
   res.clearCookie("refreshToken");
 };
+
+export const setAccessTokenCookie = (res, accessToken) => {
+  res.cookie("accessToken", accessToken, {
+    httpOnly: true,
+    secure: ENV().node_env === "production",
+    sameSite: "strict",
+    maxAge: 10 * 60 * 1000,
+  });
+};

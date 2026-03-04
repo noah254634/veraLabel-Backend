@@ -2,9 +2,21 @@ import { validateSignup } from "./auth.validation.js";
 import { validateLogin } from "./auth.validation.js";
 import { authService} from "./auth.service.js";
 import mailService from "../mailer/mailService.js";
-import { generateAccessToken,generateRefreshToken,setAuthCookies,clearAuthCookies } from "./auth.cookie.js";
+import { generateAccessToken,generateRefreshToken,setAuthCookies,clearAuthCookies, setAccessTokenCookie } from "./auth.cookie.js";
 import logger from "../../config/logger.js";
 export const authController={
+  getMe:async (req,res)=>{
+    try{
+      const user=req.user;
+      return res.status(200).json({
+        message:"User fetched successfully",
+        user
+      })
+    }catch(err){
+      logger.error(`Error in getMe: ${err.message}`);
+      return res.status(400).json({error:err.message});
+    }
+  },
 signup:async (req, res) => {
   try {
     logger.info(req.body)
@@ -44,6 +56,18 @@ login:async (req, res) => {
     }
 },
   
+refreshToken: async (req, res) => {
+    try {
+        const { refreshToken } = req.cookies;
+        if (!refreshToken) return res.status(401).json({ error: "Refresh token not found" });
+
+        const accessToken = await authService.refreshAccessToken(refreshToken);
+        setAccessTokenCookie(res, accessToken);
+        return res.status(200).json({ message: "Access token refreshed successfully" });
+    } catch (err) {
+        return res.status(401).json({ error: `Token refresh failed: ${err.message}` });
+    }
+},
 
 logout:async (req,res)=>{
     clearAuthCookies(res);
