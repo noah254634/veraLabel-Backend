@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import { ENV } from "../../config/env.js";
 import jwt from "jsonwebtoken";
 import mailService from "../mailer/mailService.js";
-import { setAuthCookies } from "./auth.cookie.js";
+import { setAuthCookies, setAccessTokenCookie } from "./auth.cookie.js";
 import logger from "../../config/logger.js";
 import ResetPassword from "./resetPassword.model.js";
 import crypto from "crypto";
@@ -70,5 +70,10 @@ export const authService = {
     logger.info(`Initiating forgot password process for ${email}`);
     const result = await mailService.sendResetPasswordEmail(user);
     return result;
+  },
+  sendAccessToken: async (req, res) => {
+    const refreshTok = req.cookies.refreshToken;
+    const accessToken = await authService.refreshAccessToken(refreshTok);
+    setAccessTokenCookie(res, accessToken);
   },
 };

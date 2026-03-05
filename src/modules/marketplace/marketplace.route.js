@@ -1,12 +1,9 @@
 import express from "express";
 import { marketplaceController } from "./marketplace.controller.js";
-import {cartController} from "../cart/cart.controller.js"
+import { Upload } from "../datasets/datasets.multer.js";
+import { protectRoute } from "../../middlewares/auth.middleware.js";
 const router=express.Router();
-router.post("/createCart",cartController.addToCart)
-router.delete("/clearCart",cartController.clearCart)
-router.get("/getCart",cartController.getCart)
-router.post("/checkout",cartController.checkout)
-router.put("/updateCart",cartController.updateCart)
+router.post("/send-dataset-request",protectRoute,Upload().single("uploadedFile"),marketplaceController.createDatasetRequest)
 router.get("/",marketplaceController.alldatasets);
 router.post("/createOrder",marketplaceController.createOrder);
 export default router;

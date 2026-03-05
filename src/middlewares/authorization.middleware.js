@@ -6,7 +6,6 @@ const authorize = (...allowedRoles) => {
     try {
       logger.info("Authorizing user for roles: " + allowedRoles.join(", "));
       const userRole = req.user.role;
-      logger.info(req.user)
       logger.info("User role: " + userRole);
       if (!userRole) {
         return res.status(401).json({ error: "Unauthorized" });

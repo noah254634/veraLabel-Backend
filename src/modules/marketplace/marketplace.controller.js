@@ -1,57 +1,83 @@
 import { marketplaceService } from "./marketplace.service.js";
-
-export const marketplaceController={
-    createOrder:async(req,res)=>{
-        try{
-            console.log(req.body);
-            const {datasetId,datasetPrice}=req.body;
-            const buyerId=req.user._id;
-            const response=await marketplaceService.createOrder(buyerId,datasetId,datasetPrice);
-            return res.status(200).json({response});
-        }catch(err){
-            return res.status(500).json({message:err.message})
-        }
-
-    },
-    unpublishDataset:async(req,res)=>{
-        try{
-            const {id}=req.params;
-            const response=await marketplaceService.unpublishDataset(id);
-            return res.status(200).json({response});
-
-        }catch(err){
-            return res.status(500).json({message:err.message})
-
-        }
-    },
-    alldatasets:async(_,res)=>{
-        try{
-            const datasets=await marketplaceService.alldatasets()
-            return res.status(200).json({datasets});
-
-        }catch(err){
-            return res.status(500).json({message:err.message})
-        }
-    },
-       getVerifiedDataset:async(req,res)=>{
-        try{
-            const datasets=await marketplaceService.getVerifiedDatasets()
-            return res.status(200).json({datasets});
-
-        }catch(err){
-            return res.status(500).json({message:err.message})
-
-        }
-       },
-       querydatasetByTitle:async(req,res)=>{
-        try{
-            const {title}=req.query;
-            const datasets=await marketplaceService.querydatasetByTitle(title)
-            return res.status(200).json({datasets});
-        }catch(err){
-            return res.status(500).json({message:err.message})
-        }
-       },
-       
-             
- }
+import logger from "../../config/logger.js";
+export const marketplaceController = {
+  createDatasetRequest: async (req, res) => {
+    try {
+      const body = req.body;
+      logger.info(JSON.stringify(body));
+      const {
+        domain,
+        specifications,
+        volume,
+        format,
+        budget,
+        sourceLink,
+      } = body;
+      const uploadedFile = req.file;
+      const userId = req.user?._id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const response = await marketplaceService.createDatasetRequest(
+        domain,
+        specifications,    
+        volume,
+        format,
+        budget,
+        sourceLink,
+        uploadedFile,
+        userId,
+      );
+      return res.status(200).json({ response });
+    } catch (err) {
+      return res.status(500).json({ message: err.message });
+    }
+  },
+  createOrder: async (req, res) => {
+    try {
+      console.log(req.body);
+      const { datasetId, datasetPrice } = req.body;
+      const buyerId = req.user._id;
+      const response = await marketplaceService.createOrder(
+        buyerId,
+        datasetId,
+        datasetPrice,
+      );
+      return res.status(200).json({ response });
+    } catch (err) {
+      return res.status(500).json({ message: err.message });
+    }
+  },
+  unpublishDataset: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const response = await marketplaceService.unpublishDataset(id);
+      return res.status(200).json({ response });
+    } catch (err) {
+      return res.status(500).json({ message: err.message });
+    }
+  },
+  alldatasets: async (_, res) => {
+    try {
+      const datasets = await marketplaceService.alldatasets();
+      return res.status(200).json({ datasets });
+    } catch (err) {
+      return res.status(500).json({ message: err.message });
+    }
+  },
+  getVerifiedDataset: async (req, res) => {
+    try {
+      const datasets = await marketplaceService.getVerifiedDatasets();
+      return res.status(200).json({ datasets });
+    } catch (err) {
+      return res.status(500).json({ message: err.message });
+    }
+  },
+  querydatasetByTitle: async (req, res) => {
+    try {
+      const { title } = req.query;
+      const datasets = await marketplaceService.querydatasetByTitle(title);
+      return res.status(200).json({ datasets });
+    } catch (err) {
+      return res.status(500).json({ message: err.message });
+    }
+  },
+};
