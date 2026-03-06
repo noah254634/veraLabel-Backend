@@ -19,7 +19,7 @@ const DatasetSchema=new Schema({
     required:true
   },
   budget:{
-    type:Number,
+    type:String,
     required:true
   },
   format:{
@@ -31,6 +31,13 @@ const DatasetSchema=new Schema({
   },
   fileUrl: {
     type: String
-  }
+  },
+  status: {
+    type: String,
+    enum: ["pending", "processing", "done","failed"],
+    default: "pending"
+    }
+},{
+    timestamps:true
 });
 export default mongoose.model("DatasetForBuyer",DatasetSchema);

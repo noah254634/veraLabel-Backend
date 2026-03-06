@@ -1,6 +1,17 @@
 import { marketplaceService } from "./marketplace.service.js";
 import logger from "../../config/logger.js";
 export const marketplaceController = {
+  getDatasetOrders: async (req, res) => {
+    try {
+      const buyerDatasetOrders = await marketplaceService.getdatasetOrders(
+        req.user._id,
+      );
+      return res.status(200).json({ buyerDatasetOrders });
+    }catch(err){
+      logger.error(err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  },
   createDatasetRequest: async (req, res) => {
     try {
       const body = req.body;
@@ -28,6 +39,7 @@ export const marketplaceController = {
       );
       return res.status(200).json({ response });
     } catch (err) {
+      logger.error(err.message);
       return res.status(500).json({ message: err.message });
     }
   },

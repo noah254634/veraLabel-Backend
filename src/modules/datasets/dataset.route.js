@@ -20,6 +20,8 @@ router.get("/allDatasets", datasetController.getAllDatasets);
 // Optional: filter datasets by type or status
 router.get("/filter", datasetController.filterDatasets);
 
+router.get("/buyerSideDatasets",protectRoute,datasetController.buyerSideDatasets);
+
 // Get a single dataset by ID
 router.get("/:id", datasetController.getDatasetById);
 

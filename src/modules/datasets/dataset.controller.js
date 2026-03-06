@@ -1,6 +1,15 @@
+import logger from "../../config/logger.js";
 import {datasetService} from "./dataset.service.js";
 
 export const datasetController={
+    buyerSideDatasets:async(req,res)=>{
+        try{
+            const datasets=await datasetService.buyerSideDatasets();
+            return res.json(datasets);
+        }catch(err){
+            return res.status(400).json({message:err.message});
+        }
+    },
     createDataset:async(req,res)=>{
         try{
             console.log("here is the body:",req.body)
@@ -8,7 +17,8 @@ export const datasetController={
         const datasetLabeler=req.user._id;
         const file=req.file;
         if(!file) return res.status(401).json({message:"File is required"});
-        const dataset=await datasetService.createDataset(name,description,price,datasetLabeler,datasetType,datasetFormat,file);
+        const datasetId = req.datasetId;
+        const dataset=await datasetService.createDataset(name,description,price,datasetLabeler,datasetType,datasetFormat,file, datasetId);
         return res.json(dataset);
         }catch(err){
             return res.status(401).json({error:`an error occurred while creating file try again later ${err.message}`})
@@ -46,8 +56,10 @@ export const datasetController={
         try{
         const {id}=req.params;
         const dataset=await datasetService.deleteDataset(id);
+        logger.info(dataset)
         return res.json(dataset);
         }catch(err){
+            logger.error(err.message);
             return res.status(400).json({message:err.message});
         }
     },

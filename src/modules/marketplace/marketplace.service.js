@@ -1,9 +1,47 @@
+import mongoose from "mongoose";
 import Dataset from "../datasets/dataset.model.js";
 import DatasetRequest from "./request.model.js";
 import UserVera from "../users/user.model.js";
 import { PaymentService } from "../payments/services/payment.service.js";
 import Order from "./order.model.js";
 export const marketplaceService = {
+  getdatasetOrders: async (buyerId) => {
+    const userExists = await UserVera.findOne({ _id: buyerId, role: "buyer" });
+    if (!userExists) throw new Error("Unauthorized access or user not a buyer");
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const datasetOrders = await DatasetRequest.aggregate([
+      {
+        $match: {
+          buyerId: buyerId,
+          //status: "done",
+          createdAt: { $gte: sevenDaysAgo },
+        },
+      },
+      { $sort: { createdAt: -1 } }, // newest first
+      { $limit: 3 },
+      {
+        $project: {
+          _id: 0,
+          datasetId: 1,
+          createdAt: 1,
+          price: 1,
+          volume: 1,
+          format: 1,
+          domain: 1,
+          description: 1,
+          budget: 1,
+          sourceLink: 1,
+          fileUrl: 1,
+          status: 1,
+        },
+      },
+    ]);
+
+    return datasetOrders;
+  },
+
   createDatasetRequest: async (
     domain,
     specifications,
@@ -17,21 +55,22 @@ export const marketplaceService = {
     const userExists = await UserVera.findOne({ _id: userId, role: "buyer" });
     if (!userExists) throw new Error("Unauthorized access or user not a buyer");
     if (!domain) throw new Error("Domain is required");
-    if (!specifications) throw new Error("Description is required");
+    if (!specifications) throw new Error("Specifications is required");
     if (!volume) throw new Error("Volume is required");
     if (!budget) throw new Error("Budget is required");
     if (!format) throw new Error("Format is required");
-    if (!sourceLink && !uploadedFile) throw new Error("Source link or uploaded file is required");
-
+    if (!sourceLink && !uploadedFile)
+      throw new Error("Source link or uploaded file is required");
+    let formatted = "$" + budget.toString();
     const dataset = await DatasetRequest.create({
       domain,
-      description:specifications,
+      description: specifications,
       volume,
-      budget,
+      budget: formatted,
       format,
       buyerId: userId,
       sourceLink,
-      fileUrl: uploadedFile ? uploadedFile.location : null
+      fileUrl: uploadedFile ? uploadedFile.location : null,
     });
     return dataset;
   },
@@ -53,7 +92,7 @@ export const marketplaceService = {
     if (!buyerExists) throw new Error("Unauthorized access");
     for (const item of items) {
       const datasetId = item.datasetId;
-      const datasetExistsAndPublished = await Dataset.findById({
+      const datasetExistsAndPublished = await Dataset.findOne({
         _id: datasetId,
         isPublished: true,
       });
