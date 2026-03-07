@@ -1,21 +1,29 @@
+import logger from "../../config/logger.js";
 import { onboardingService } from "./onboarding.service.js";
 export const onboardingController = {
   createLabellerProfile: async (req, res) => {
     try {
-        const { languages, age, expertise, skillTags } = req.body;
-        if (!languages || !age || !expertise || !skillTags) {
+        logger.info(req.body);
+        let {age, expertise, skillTags,gender,location,annotationExperience, } = req.body;
+        if(location && location.location){
+            location=location.location
+        }
+        if ( !age || !expertise || !skillTags||!gender||!location) {
           throw new Error("All fields are required");
         }
         const userId = req.user._id;
         const response = await onboardingService.createLabellerProfile(
           userId,
-          languages,
           age,
           expertise,
           skillTags,
+          gender,
+          location,
+          annotationExperience,
         );
         return res.status(200).json(response);
     } catch (err) {
+      logger.error(err.message);
       return res.status(400).json({ error: err.message });
     }
   },

@@ -6,12 +6,15 @@ import AssessmentAttempt from "./model/assessment.attempt.js";
 export const onboardingService = {
   createLabellerProfile: async (
     userId,
-    languages,
     age,
     expertise,
     skillTags,
+    gender,
+    location,
+    annotationExperience,
+    languages,
   ) => {
-    if (!userId || !languages || !age || !expertise || !skillTags)
+    if (!userId || !age || !expertise || !skillTags || !gender || !location)
       throw new Error("All fields are required");
     const newUser = await Labeller.create({
       userId,
@@ -19,6 +22,9 @@ export const onboardingService = {
       age,
       expertise,
       skillTags,
+      gender,
+      location,
+      annotationExperience,
     });
     return newUser;
   },

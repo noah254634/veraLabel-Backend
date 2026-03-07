@@ -20,5 +20,5 @@ router.use("/payments",protectRoute,checkisBlocked,authorize("admin","buyer","la
 router.use("/users",userRouter);
 router.use("/admin",protectRoute,checkisBlocked,adminRouter);
 router.use("/analytics",protectRoute,checkisBlocked,analyticsRouter);
-router.use("/onboarding",onboardinRouter);
+router.use("/onboarding",protectRoute,checkisBlocked,onboardinRouter);
 export default router;

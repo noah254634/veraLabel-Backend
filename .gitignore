@@ -14,5 +14,10 @@ lerna-debug.log*
 
 # OS-generated files
 # These files are specific to the user's operating system and should not be committed.
+node_modules
+.env
+npm-debug.log
+coverage
 .DS_Store
 Thumbs.db
+dist

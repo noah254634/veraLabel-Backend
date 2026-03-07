@@ -8,7 +8,7 @@ const LabellerSchema=new mongoose.Schema({
     },
     languages:{
         type:[String],
-        required:true
+        required:false,
     },
     isOnboarded:{
         type:Boolean,
@@ -48,10 +48,42 @@ const LabellerSchema=new mongoose.Schema({
         type:Number,
         default:0
     },
-    difficulty:{
+    userLevel:{
         type:String,
         enum:['beginner','advanced','pro'],
         default:'beginner'
+    },
+    createdAt:{
+        type:Date,
+        default:Date.now
+    },
+    labellerTotalEarnings:{
+        type:Number,
+        default:0
+    },
+    location:{
+        country:{
+            type:String,
+            required:true
+        },
+        region:{
+            type:String,
+            required:true
+        },
+        city:{
+            type:String,
+            required:true
+        }
+    },
+    annotationExperience:{
+        hasExperience:{
+            type:Boolean,
+            default:false
+        },
+        experienceDuration:{
+            type:String,
+            default:0
+        },
     }
     
 

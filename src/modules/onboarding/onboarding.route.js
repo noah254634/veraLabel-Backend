@@ -1,9 +1,8 @@
 import express from "express";
 import authorize from "../../middlewares/authorization.middleware.js"
 import { onboardingController } from "./onboarding.controller.js";
-
 const router = express.Router();
-router.use(authorize("labeller","admin"))
+router.use(authorize("labeller","labeler","admin"))
 router.post("/createLabellerProfile",onboardingController.createLabellerProfile)
 router.get("/getLabellerProfile",onboardingController.getLabellerProfile)
 router.put("/updateLabellerProfile",onboardingController.updateLabellerProfile)
