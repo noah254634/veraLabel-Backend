@@ -4,6 +4,8 @@ import Dataset from "../../datasets/dataset.model.js";
 import Order from "../../marketplace/order.model.js";
 import mongoose from "mongoose";
 import logger from "../../../config/logger.js";
+import { ENV } from "../../../config/env.js";
+import crypto from "crypto";
 export const PaymentService = {
   createPayment: async ({
     order,
@@ -13,8 +15,8 @@ export const PaymentService = {
     redirectUrl,
     reference,
     metadata,
-    provider,
     payerUserId,
+    provider,
     purpose,
   }) => {
     const payerId = payerUserId || user?._id;
@@ -25,10 +27,10 @@ export const PaymentService = {
       payerUserId: payerId,
       amount,
       currency,
-      provider: provider || "flutterwave",
+      provider: provider,
       status: "pending",
       reference,
-      purpose: purpose || "dataset_purchase",
+      purpose: purpose,
       redirectUrl: redirectUrl || "",
       metadata,
     });
@@ -37,66 +39,80 @@ export const PaymentService = {
       amount,
       currency,
       user,
+      email: user.email,
+      reference,
       redirectUrl,
+      provider,
     });
 
     return { payment, providerResponse };
   },
 
-  verifyPayment: async (reference) => {
+  verifyPayment: async (reference) => {  
+   
     const providerResult = await PaymentProvider.verifyPayment(reference);
 
+    const order = await Order.findOne({ reference });
+    if (!order) throw new Error("Order not found");
     const payment = await Payment.findOne({ reference });
-    if (!payment) throw new Error("Payment not found");
-    
-      return await PaymentService.processPaymentPostVerification(payment, providerResult);
+    if (payment.status !== "pending") throw new Error("Payment already processed");
+
+    return await PaymentService.processPaymentPostVerification(
+      payment,
+      providerResult,
+    );
   },
-// Called after provider confirms payment
-processPaymentPostVerification: async (payment, providerResult) => {
-  logger.info("Processing payment post verification");
-  const session = await mongoose.startSession();
-  session.startTransaction();
 
-  try {
-    // Update payment
-    payment.status = providerResult.status === "successful" ? "completed" : "payment_failed";
-    await payment.save({ session });
+  // Called after provider confirms payment
+  processPaymentPostVerification: async (payment, providerResult) => {
+    logger.info("Processing payment post verification");
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    // Populate order
-    const { order: populatedOrder } = await payment.populate('order');
+    try {
+      // Update payment
+      payment.status =
+        providerResult.status === "success" ? "completed" : "payment_failed";
+      await payment.save({ session });
 
-    // Update order
-    populatedOrder.status = providerResult.status === "successful" ? "approved" : "rejected";
-    await populatedOrder.save({ session });
+      // Populate order
+      const { order: populatedOrder } = await payment.populate("order");
 
-    // Update dataset
-    const dataset = await Dataset.findById(populatedOrder.datasetId).session(session);
-    if (!dataset) throw new Error("Dataset not found");
+      // Update order
+      populatedOrder.status =
+        providerResult.status === "success" ? "approved" : "rejected";
+      await populatedOrder.save({ session });
 
-    if (providerResult.status === "successful") {
-      dataset.purchasesCount = (dataset.purchasesCount || 0) + 1;
+      // Update dataset
+      const dataset = await Dataset.findById(populatedOrder.datasetId).session(
+        session,
+      );
+      if (!dataset) throw new Error("Dataset not found");
 
-      if (dataset.isExclusive) {
-        dataset.isPublished = false;
-        dataset.visibility = "private";
-        dataset.exclusiveBuyer = payment.payerUserId;
-        dataset.exclusivePrice = payment.amount;
+      if (providerResult.status === "success") {
+        dataset.purchasesCount = (dataset.purchasesCount || 0) + 1;
+
+        if (dataset.isExclusive) {
+          dataset.isPublished = false;
+          dataset.visibility = "private";
+          dataset.exclusiveBuyer = payment.payerUserId;
+          dataset.exclusivePrice = payment.amount;
+        }
+
+        await dataset.save({ session, validateBeforeSave: false });
       }
 
-      await dataset.save({ session });
+      await session.commitTransaction();
+      session.endSession();
+
+      return { success: true };
+    } catch (err) {
+      logger.warn(`Transaction aborted due to:${err.message}`);
+      await session.abortTransaction();
+      session.endSession();
+      throw err;
     }
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return { success: true };
-  } catch (err) {
-    logger.warn( `Transaction aborted due to:${err.message}`)
-    await session.abortTransaction();
-    session.endSession();
-    throw err;
-  }
-},
+  },
 
   getPaymentHistory: async (userId) => {
     return Payment.find({ payerUserId: userId }).sort({ createdAt: -1 });

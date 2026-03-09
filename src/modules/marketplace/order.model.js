@@ -5,7 +5,7 @@ export const orderSchema=new mongoose.Schema({
         required:true,
         unique:true
     },
-    buyer:{
+    buyerId:{
         type:mongoose.Schema.Types.ObjectId,
         ref:"UserVera",
         required:true

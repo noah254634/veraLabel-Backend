@@ -15,6 +15,10 @@ const env = {
     flutterwave_secret: process.env.FLUTTERWAVE_SECRET,
     resend_api_key: process.env.RESEND_API_KEY,
     email_user: process.env.EMAIL_USER,
+    paystack_public_key: process.env.PAYSTACK_PUBLIC_KEY,
+    paystack_secret_key: process.env.PAYSTACK_SECRET_KEY,
+    payment_currency: process.env.PAYMENT_CURRENCY,
+    server_url: process.env.SERVER_URL || "http://localhost:5000",
 
   
 };

@@ -14,9 +14,9 @@ import onboardinRouter from "./modules/onboarding/onboarding.route.js";
 const router=express.Router();
 logger.info("Request started in route.js");
 router.use("/marketplace",protectRoute,checkisBlocked,authorize("admin","buyer"),marketplaceRouter)
-router.use("/datasets",protectRoute,checkisBlocked,authorize("admin","buyer","labeler"),datasetRouter);
+router.use("/datasets",datasetRouter);
 router.use("/auth",authRouter);
-router.use("/payments",protectRoute,checkisBlocked,authorize("admin","buyer","labeler"),paymentRouter)
+router.use("/payments",paymentRouter)
 router.use("/users",userRouter);
 router.use("/admin",protectRoute,checkisBlocked,adminRouter);
 router.use("/analytics",protectRoute,checkisBlocked,analyticsRouter);

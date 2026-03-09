@@ -1,25 +1,54 @@
 import { ENV } from '../../config/env.js'   
 import axios from 'axios'
+import logger from '../../config/logger.js';
+import Paystack from 'paystack'
+const paystack = new Paystack(ENV().paystack_secret_key)
 
 export const PaymentProvider = {
-  initiatePayment: async ({ amount, currency, user, redirectUrl }) => {
-    // Call Flutterwave API
-    const response = await axios.post('https://api.flutterwave.com/v3/payments', {
-      amount,
-      currency,
-      customer: { id: user._id, email: user.email },
-      redirect_url: redirectUrl
-    }, {
-      headers: { Authorization: `Bearer ${ENV().FLUTTERWAVE_KEY}` }
-    })
-
-    return response.data
+  initiatePayment: async ({ email, amount, reference, redirectUrl, currency, user }) => {
+    try {
+      const response = await paystack.transaction.initialize({
+        reference,
+        email: email || user?.email,
+        amount: amount * 100, // Paystack expects amount in kobo/cents
+        currency: currency,
+        metadata: {
+          custom_fields: [
+            {
+              display_name: 'Name',
+              variable_name: 'name',
+              value: user?.name || ''
+            },
+            {
+              display_name: 'Email',
+              variable_name: 'email',
+              value: user?.email
+            }
+          ]
+        },
+        callback_url:`http://localhost:5000/api/v1/payments/paystack/webhook`
+      })
+      if (!response || !response.status) {
+        const message = response?.message || 'Paystack payment initialization failed';
+        throw new Error(message);
+      }
+      return response.data;
+    }catch(err){
+      logger.error(`Error initializing Paystack transaction: ${err.message}`);
+      throw err;
+    }
   },
-
-  verifyPayment: async (reference) => {
-    const response = await axios.get(`https://api.flutterwave.com/v3/transactions/${reference}/verify`, {
-      headers: { Authorization: `Bearer ${ENV().FLUTTERWAVE_KEY}` }
-    })
-    return response.data
+  verifyPayment: async (ref) => {
+    try {
+      const response = await paystack.transaction.verify(ref);
+      if (!response || !response.status) {
+        const message = response?.message || 'Paystack payment verification failed';
+        throw new Error(message);
+      }
+      return response.data;
+    }catch(err){
+      logger.error(`Error verifying Paystack transaction: ${err.message}`);
+      throw err;
+    }
   }
 }
