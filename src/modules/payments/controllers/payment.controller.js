@@ -5,6 +5,17 @@ import crypto from "crypto";
 import { ENV } from "../../../config/env.js";
 import Dataset from "../../datasets/dataset.model.js";
 export const PaymentController = {
+  success: async (req, res) => {
+    try {
+      const reference = req.params.reference;
+      if (!reference) throw new Error("reference is required");
+      const response = await PaymentService.success(reference);
+      return res.status(200).json(response.data);
+    } catch (err) {
+      return res.status(400).json({ message: err.message });
+    }
+  },
+
   //commented it out because i could create order and create payment directly in marketplace module
   createPayment: async (req, res) => {
     try {
@@ -16,10 +27,11 @@ export const PaymentController = {
       const reference = generateReference();
       if (req.user.role !== "buyer")
         throw new Error("Unauthorized access  or user not a buyer");
-      const {isExclusive, datasetId } = req.body;
-      if (!datasetId || isExclusive === undefined) throw new Error("all fields are required");
+      const { isExclusive, datasetId } = req.body;
+      if (!datasetId || isExclusive === undefined)
+        throw new Error("all fields are required");
       const dataset = await Dataset.findOne({ _id: datasetId });
-      if (!dataset) throw new Error("Dataset not found")
+      if (!dataset) throw new Error("Dataset not found");
       //if (dataset.visibility === "private") throw new Error("Dataset is private");
       const redirectUrl =
         "https://insightful-marica-unsenescent.ngrok-free.dev/payment/verify";

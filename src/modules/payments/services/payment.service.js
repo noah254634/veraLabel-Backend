@@ -7,6 +7,12 @@ import logger from "../../../config/logger.js";
 import { ENV } from "../../../config/env.js";
 import crypto from "crypto";
 export const PaymentService = {
+  success: async (reference) => {
+    const payment = await Payment.findOne({ reference });
+    if (!payment) throw new Error("No Payment with that reference was  found");
+    const status=payment.status==="completed"?"success":"failed"
+    return status
+  },
   createPayment: async ({
     order,
     user,
