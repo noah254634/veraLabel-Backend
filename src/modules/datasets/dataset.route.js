@@ -16,10 +16,10 @@ router.post(
 
 // Get all datasets
 router.get("/allDatasets", datasetController.getAllDatasets);
-
+router.post("/confirmUpload",datasetController.confirmUpload)
 // Optional: filter datasets by type or status
 router.get("/filter", datasetController.filterDatasets);
-
+router.post("/generateUploadUrl",datasetController.generateUploadUrl);
 router.get("/buyerSideDatasets",protectRoute,datasetController.buyerSideDatasets);
 
 // Get a single dataset by ID

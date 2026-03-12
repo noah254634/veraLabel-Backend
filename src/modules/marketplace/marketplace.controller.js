@@ -1,7 +1,18 @@
 import { marketplaceService } from "./marketplace.service.js";
 import logger from "../../config/logger.js";
 export const marketplaceController = {
-  getDatasetOrders: async (req, res) => {
+  getOrders:async(req,res)=>{
+    try{
+      const buyerId=req.user._id;
+      const orders=await marketplaceService.getOrders(buyerId);
+      return res.status(200).json({orders})
+    }catch(err){
+      logger.error(err.message);
+      return res.status(500).json({message:err.message})
+    }
+  },
+
+  getBuyerRequests: async (req, res) => {
     try {
       const buyerDatasetOrders = await marketplaceService.getdatasetOrders(
         req.user._id,
@@ -27,7 +38,7 @@ export const marketplaceController = {
       const uploadedFile = req.file;
       const userId = req.user?._id;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
-      const response = await marketplaceService.createDatasetRequest(
+      const response = await marketplaceService.DatasetRequest(
         domain,
         specifications,    
         volume,

@@ -1,13 +1,70 @@
 import Dataset from "./dataset.model.js";
+import { PutObjectCommand, PutBucketCorsCommand, CreateBucketCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { v4 as uuidv4 } from "uuid";
+import { r2 } from "../../config/r2Upload.js";
+
+const ensureCorsConfigured = async () => {
+  try {
+    const command = new PutBucketCorsCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      CORSConfiguration: {
+        CORSRules: [
+          {
+            AllowedHeaders: ["*"],
+            AllowedMethods: ["PUT", "POST", "GET", "HEAD"],
+            AllowedOrigins: ["*"],
+            ExposeHeaders: ["ETag"],
+            MaxAgeSeconds: 3000,
+          },
+        ],
+      },
+    });
+    await r2.send(command);
+  } catch (error) {
+    if (error.name === 'NoSuchBucket' || error.message?.includes('The specified bucket does not exist')) {
+      console.info(`Bucket '${process.env.R2_BUCKET_NAME}' not found. Attempting to create it...`);
+      try {
+        await r2.send(new CreateBucketCommand({ Bucket: process.env.R2_BUCKET_NAME }));
+        console.info(`Bucket '${process.env.R2_BUCKET_NAME}' created successfully.`);
+        await ensureCorsConfigured(); 
+      } catch (createError) {
+        console.error("Failed to create R2 bucket:", createError.message);
+      }
+    } else {
+      console.warn("Warning: Failed to configure R2 CORS:", error.message);
+    }
+  }
+};
 
 export const datasetService = {
+  generateUploadUrl: async (userId, fileType) => {
+  
+    await ensureCorsConfigured();
+    
+    if (!userId) throw new Error("userId is required");
+    if (!fileType) throw new Error("fileType is required");
+    const key = `datasets/${userId}/${uuidv4()}`;
+
+    const command = new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: key,
+      ContentType: fileType,
+    });
+
+    const uploadUrl = await getSignedUrl(r2, command, {
+      expiresIn: 60,
+    });
+
+    return { uploadUrl, key };
+  },
   buyerSideDatasets: async () => {
     const datasets = await Dataset.aggregate([
       {
         $match: {
           //visibility: "public",
           isPublished: true,
-         // isVerified: true,
+          // isVerified: true,
         },
       },
       {

@@ -5,6 +5,38 @@ import UserVera from "../users/user.model.js";
 import { PaymentService } from "../payments/services/payment.service.js";
 import Order from "./order.model.js";
 export const marketplaceService = {
+  getOrders: async (buyerId) => {
+    const orders = await Order.aggregate([
+      {
+        $match: {
+          buyerId: buyerId,
+          status: "approved",
+        },
+      },
+      {
+        $sort: {
+          createdAt: -1,
+        },
+      },
+      {
+        $limit: 20,
+      },
+      /*{
+        $lookup: {
+          from: "datasets",
+          localField: "datasetId",
+          foreignField: "_id",
+          as: "dataset",
+        },
+      },*/
+      {
+        $project: {
+          _id: 0,
+        },
+      },
+    ]);
+    return orders;
+  },
   getdatasetOrders: async (buyerId) => {
     const userExists = await UserVera.findOne({ _id: buyerId, role: "buyer" });
     if (!userExists) throw new Error("Unauthorized access or user not a buyer");
@@ -20,7 +52,7 @@ export const marketplaceService = {
         },
       },
       { $sort: { createdAt: -1 } }, // newest first
-      { $limit: 3 },
+      { $limit: 8 },
       {
         $project: {
           _id: 0,
@@ -42,7 +74,7 @@ export const marketplaceService = {
     return datasetOrders;
   },
 
-  createDatasetRequest: async (
+  DatasetRequest: async (
     domain,
     specifications,
     volume,
@@ -94,15 +126,11 @@ export const marketplaceService = {
       reference,
       buyerId: buyerId,
       datasetId,
-      status: "pending",  
+      status: "pending",
       totalPrice: datasetPrice,
       reference,
     });
     return order;
-  },
-  getOrders: async () => {
-    const orders = await Order.find();
-    return orders;
   },
   alldatasets: async () => {
     const datasets = await Dataset.find();
@@ -110,6 +138,8 @@ export const marketplaceService = {
   },
   getdatasetById: async (id) => {
     if (!id) throw new Error("id is required");
+    if (!mongoose.Types.ObjectId.isValid(id))
+      throw new Error("Invalid dataset id");
     const dataset = await Dataset.findById(id);
     return dataset;
   },
