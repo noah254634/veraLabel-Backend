@@ -63,7 +63,7 @@ export const PaymentController = {
         order: order._id,
         user: req.user,
         amount: datasetPrice,
-        currency: ENV().payment_currency || "KES",
+        currency:"USD",
         redirectUrl,
         reference,
         metadata: {},
