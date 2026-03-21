@@ -5,7 +5,6 @@ import app from "./app.js";
 import mongoose, { set } from "mongoose";
 import logger from "./config/logger.js";
 
-
 const port=ENV().PORT||3000;
 const server=app.listen(port,()=>{
     logger.info(`server running on http://localhost:${port}`);

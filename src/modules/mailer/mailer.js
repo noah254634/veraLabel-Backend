@@ -8,7 +8,7 @@ const transporter = nodemailer.createTransport({
   requireTLS: true,
   auth: {
     user: "resend",
-    pass: ENV().resend_api_key,
+    pass: ENV({ required: ["RESEND_API_KEY"] }).resend_api_key,
   },
 });
 

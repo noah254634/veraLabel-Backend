@@ -1,6 +1,7 @@
 import express from "express";
 import router from "./routes.js";
 import morgan from "morgan";
+import {ENV} from "./config/env.js";
 import {protectRoute} from "./middlewares/auth.middleware.js";
 import { arcjetProtectRoute } from "./middlewares/arcjet.middleware.js";
 import cookieParser from "cookie-parser";
@@ -12,16 +13,11 @@ const app=express();
 app.use(morgan("dev"));
 app.use(express.json());
 app.use(cookieParser());
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "http://localhost:5174",
-  "http://127.0.0.1:5173",
-];
+const origins=ENV().allowedOrigins;
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || origins.includes(origin)) {
       return callback(null, true);
     }
     return callback(new Error("Not allowed by CORS"));

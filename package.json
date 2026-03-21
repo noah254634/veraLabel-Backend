@@ -32,6 +32,7 @@
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "multer-s3": "^3.0.1",
+    "node-cron": "^4.2.1",
     "nodemailer": "^8.0.1",
     "paystack": "^2.0.1",
     "pino": "^10.3.1",
