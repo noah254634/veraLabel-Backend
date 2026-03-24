@@ -1,16 +1,50 @@
 import Task from "./task.model.js";
 import UserVera from "../users/user.model.js";
 export const taskService = {
-  createTask: async (datasetUrl, taskFiles) => {
-    const taskEntries = taskFiles.map((file) => ({
-      r2_datasetUrl: datasetUrl,
-      r2_input_taskRef: file.key,
-      taskType: file.type,
-      taskName: file.name,
-      task_dataset_url: file.url,
-      status: "pending",
-      isAssigned: false,
-    }));
+  createTask: async ({ datasetId, projectId, tasks }) => {
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      throw new Error("task files are required");
+    }
+
+    const datasetRef = `projects/${projectId}/${datasetId}`;
+
+    const taskEntries = tasks.map((task, index) => {
+      // Legacy file-style payload support
+      if (task && task.key) {
+        return {
+          r2_datasetUrl: datasetId,
+          r2_input_taskRef: task.key,
+          r2_taskUrl: task.url || task.key,
+          taskType: task.type || "text",
+          taskName: task.name || `task-${index + 1}`,
+          status: "pending",
+          isAssigned: false,
+          taskId: task.taskId,
+          contentPreview: task.contentPreview,
+          split: task.split,
+
+        };
+      }
+
+      // Worker payload support: { taskId, r2_url, split, contentPreview }
+      if (task && task.r2_url) {
+        return {
+          r2_datasetUrl: datasetId ? `${datasetRef}` : undefined,
+          r2_input_taskRef: task.r2_url,
+          r2_taskUrl: task.r2_url,
+          taskType: task.taskType || "rfhlearning",
+          taskName: task.contentPreview || task.taskId || `task-${index + 1}`,
+          status: "pending",
+          isAssigned: false,
+          taskId: task.taskId,
+          contentPreview: task.contentPreview,
+          split: task.split,
+        };
+      }
+
+      throw new Error(`Invalid task payload at index ${index}`);
+    });
+
     await Task.insertMany(taskEntries);
     return {
       message: "Tasks created successfully",
@@ -19,6 +53,8 @@ export const taskService = {
   },
   getTasks: async () => {
     const tasks = await Task.find();
+    if (!tasks) throw new Error("No tasks found");
+    if (tasks.length === 0) throw new Error("No tasks found");
     return tasks;
   },
   getTaskById: async (id) => {
@@ -114,13 +150,14 @@ export const taskService = {
   },
   autoAssignTask: async () => {},
   revokeExpiredTasks:async()=>{
-    const twoHoursAgo = new Date();
-    twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
-    const result=await Task.updateMany({
-        status: "isAssigned",
-        updatedAt: { $lt: twoHoursAgo },
-    },
-        {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const result = await Task.updateMany(
+      {
+        isAssigned: true,
+        status: "in_progress",
+        assignedAt: { $lt: twoHoursAgo },
+      },
+      {
         $set: {
           status: "pending",
           isAssigned: false,
@@ -128,9 +165,9 @@ export const taskService = {
           assignedAt: null,
           startedAt: null,
           completedAt: null,
-        }
-    }
-    )
+        },
+      }
+    );
     return { message: "Tasks revoked successfully", result };
   },
 };

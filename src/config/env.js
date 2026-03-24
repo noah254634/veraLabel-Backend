@@ -37,6 +37,7 @@ const buildEnv = (processEnv = process.env, options = {}) => {
         payment_currency: processEnv.PAYMENT_CURRENCY,
         server_url: processEnv.SERVER_URL || "http://localhost:5000",
         handshake_url: processEnv.HANDSHAKE_URL,
+        Internal_Secret: processEnv.INTERNAL_SECRET,
         allowedOrigins: allowedOriginsStr.split(",").map(origin => origin.trim()),
     };
 };

@@ -4,6 +4,16 @@ const Schema = mongoose.Schema;
 
 const taskSchema = new Schema({
   // 1. IDENTITY
+  taskId: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  split: {
+    type: String,
+    enum: ["train", "validation", "test"],
+    required: true
+  },
   taskName: {
     type: String,
     required: true

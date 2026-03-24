@@ -4,11 +4,13 @@ import connectDB from "./config/connectingDB.js";
 import app from "./app.js";
 import mongoose, { set } from "mongoose";
 import logger from "./config/logger.js";
-
+import startTaskCleanUp from "./helpers/cronJobs.js";
 const port=ENV().PORT||3000;
 const server=app.listen(port,()=>{
     logger.info(`server running on http://localhost:${port}`);
     connectDB();
+    startTaskCleanUp();
+    
 });
 //ERROR HANDLING AND CLOSING OF SERVER
 const shutdown=async(signal)=>{
