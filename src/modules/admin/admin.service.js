@@ -211,6 +211,19 @@ export const adminService = {
     if (!user) throw new Error("User not found");
     return user;
   },
+  
+  // TEMPORARY: Promote user by email (for dev/setup only)
+  promoteUserByEmail: async (email) => {
+    if (!email) throw new Error("Email required to do this action");
+    const user = await UserVera.findOneAndUpdate(
+      { email },
+      { role: "admin" },
+      { new: true },
+    );
+    if (!user) throw new Error(`User with email ${email} not found`);
+    return user;
+  },
+  
   demoteUserById: async (id) => {
     if (!id) throw new Error("Id required to do this action");
     if (!mongoose.Types.ObjectId.isValid(id))

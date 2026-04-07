@@ -138,6 +138,7 @@ publishDataset: async (req, res) => {
       return res.status(400).json({ message: err.message });
     }
   },
+  
   demoteUser: async (req, res) => {
     try {
       logger.info(`Demoting user with id: ${req.params.id}`);

@@ -2,16 +2,13 @@ import express from "express";
 import router from "./routes.js";
 import morgan from "morgan";
 import {ENV} from "./config/env.js";
-import {protectRoute} from "./middlewares/auth.middleware.js";
-import { arcjetProtectRoute } from "./middlewares/arcjet.middleware.js";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import pinoHttp from "pino-http";
-import logger from "./config/logger.js";
-import { v4 as uuidv4 } from "uuid"; // for generating unique request IDs
 const app=express();
-app.use(morgan("dev"));
-app.use(express.json());
+if (ENV().NODE_ENV !== "production") {
+  app.use(morgan("dev"));
+}
+app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 const origins=ENV().allowedOrigins;
 

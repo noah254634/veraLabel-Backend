@@ -44,7 +44,15 @@ export const datasetService = {
     
     if (!userId) throw new Error("userId is required");
     if (!fileType) throw new Error("fileType is required");
-    const key = `datasets/${userId}/${uuidv4()}`;
+    const folderMap={
+      rlhf:"rlhfDatasets",
+      images:"imageDatasets",
+      general:"generalDatasets",
+      datasets:"datasets",
+      synthetic:"syntheticDatasets"
+    }
+    const folder = folderMap[fileType] || "datasets";
+    const key = `${folder}/${userId}/${uuidv4()}`;
 
     const command = new PutObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,

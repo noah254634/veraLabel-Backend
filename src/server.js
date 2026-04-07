@@ -5,12 +5,18 @@ import app from "./app.js";
 import mongoose, { set } from "mongoose";
 import logger from "./config/logger.js";
 import startTaskCleanUp from "./helpers/cronJobs.js";
+
 const port=ENV().PORT||3000;
 const server=app.listen(port,()=>{
     logger.info(`server running on http://localhost:${port}`);
-    connectDB();
-    startTaskCleanUp();
     
+    // Connect to DB first, then start cron jobs
+    connectDB().then(() => {
+        logger.info("Database connected successfully, starting task cleanup");
+        startTaskCleanUp();
+    }).catch((err) => {
+        logger.error("Failed to start task cleanup due to DB connection error");
+    });
 });
 //ERROR HANDLING AND CLOSING OF SERVER
 const shutdown=async(signal)=>{
@@ -32,7 +38,7 @@ const shutdown=async(signal)=>{
 }
 process.on("SIGTERM",shutdown);
 process.on("SIGINT",shutdown);
-process.on("unhandledRejection  ",async(err)=>{
-    logger.info(err.name,err.message);
+process.on("unhandledRejection",async(err)=>{
+    logger.error("Unhandled Rejection:",err.name,err.message);
     await shutdown("unhandledRejection");
 })  

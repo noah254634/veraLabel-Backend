@@ -3,10 +3,11 @@ import analyticsController from "../analytics/analytics.controller.js";
 import authorize from "../../middlewares/authorization.middleware.js";
 import { adminController } from "./admin.controller.js";
 const router=express.Router();
+
+
 router.use(authorize("admin"))
 // router.get("/users",()=>{});                     // list users (filters, pagination)
 // router.get("/users/:id",()=>{}); 
-                // inspect a user
 router.get("/analytics/overview",analyticsController.overview)
 router.put("/users/:id/suspend",adminController.suspendUser);         // temporary ban
 router.put("/users/:id/ban",adminController.banUser);             // permanent ban

@@ -6,9 +6,14 @@ export const taskController = {
 
   createTasks: async (req, res) => {
     try {
-      logger.info(`${req.method} ${JSON.stringify(req.body)} ${req.url}`);
+      logger.info({
+        method: req.method,
+        url: req.url,
+        taskCount: Array.isArray(req.body?.tasks) ? req.body.tasks.length : 0,
+      }, "Task creation request received");
       const url = req.headers["handshake-url"];
       const { datasetId, projectId, tasks, isLastBatch } = req.body;
+      const finalBatch = isLastBatch === true;
 
       if (!projectId) return res.status(400).json({ message: "project id is required" });
       if (!datasetId) return res.status(400).json({ message: "datasetId is required" });
@@ -19,7 +24,7 @@ export const taskController = {
           receivedTasksLength: Array.isArray(tasks) ? tasks.length : undefined,
         });
       }
-      if (typeof isLastBatch !== "boolean") {
+      if (isLastBatch !== undefined && typeof isLastBatch !== "boolean") {
         return res.status(400).json({ message: "isLastBatch must be boolean" });
       }
 
@@ -28,9 +33,9 @@ export const taskController = {
         return res.status(401).json({ message: "Invalid url" });
       }
 
-      const response = await taskService.createTask({ datasetId, projectId, tasks });
+      const response = await taskService.createTask({ datasetId, projectId, tasks, isLastBatch: finalBatch });
       logger.info(`Tasks created successfully for project ${projectId}, dataset ${datasetId}. Count: ${response.count}`);
-
+      logger.info(`Task creation response: ${JSON.stringify(response)}`);
       return res.status(201).json(response);
     } catch (err) {
       logger.error(err.message);
@@ -39,8 +44,21 @@ export const taskController = {
   },
   getTasks: async (req, res) => {
     try {
-      const response = await taskService.getTasks();
-      return res.status(200).json({ tasks: response });
+      const parsedPage = Number.parseInt(req.query.page, 10);
+      const parsedLimit = Number.parseInt(req.query.limit, 10);
+
+      const page = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+      const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 50;
+
+      const response = await taskService.getTasks({
+        page,
+        limit,
+        status: req.query.status,
+        split: req.query.split,
+        taskType: req.query.taskType,
+      });
+
+      return res.status(200).json(response);
     } catch (err) {
       logger.error(err.message);
       return res.status(500).json({ message: err.message });
@@ -79,10 +97,14 @@ export const taskController = {
       if (!userId) throw new Error("User id is required");
       const response = await taskService.submitTask(taskId, userId);
       return res.status(200).json(response);
-    } catch (err) {}
+    } catch (err) {
+      logger.error(`an error occurred while submitting task:${err.message}`);
+      return res.status(500).json({ message: err.message });
+    }
   },
-  verifyTask: async (taskId) => {
+  verifyTask: async (req, res) => {
     try {
+      const taskId = req.params.id;
       if (!taskId) throw new Error("Task id is required");
       const userId = req.user._id;
       if (req.user.role !== "admin" && req.user.role !== "reviewer")

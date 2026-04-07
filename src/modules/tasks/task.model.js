@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const Schema = mongoose.Schema;
 
 const taskSchema = new Schema({
-  // 1. IDENTITY
+  // 1. IDENTITY & REFERENCES (NO RAW CONTENT)
   taskId: {
     type: String,
     required: true,
@@ -18,31 +18,43 @@ const taskSchema = new Schema({
     type: String,
     required: true
   },
-  r2_taskUrl: {
-    type: String,
-    required: true
-  },
 
   taskType: {
-    enum:['text','audio','video','rfhlearning','image'],
-    default:'text',
+    enum: ['text', 'audio', 'video', 'rfhlearning', 'image', 'code'],
+    default: 'text',
     type: String, 
     required: true
   },
 
+  // R2 STORAGE REFERENCES (use these to fetch content)
   r2_datasetUrl: {
     type: String,
-    required: true
+    required: true,
+    description: 'Reference path in R2 for the dataset'
+  },
+
+  r2_input_taskRef: {
+    type: String,
+    required: true,
+    description: 'Reference path in R2 for the input file'
+  },
+
+  // Optional: Pre-signed URL for quick access (expires after TTL)
+  r2_presignedUrl: {
+    type: String,
+    default: null,
+    description: 'Temporary pre-signed URL to access content (cache only)'
+  },
+
+  r2_presignedUrlExpiresAt: {
+    type: Date,
+    default: null,
+    description: 'When the pre-signed URL expires'
   },
 
   dataset: {
     type: Schema.Types.ObjectId,
-    ref: "Dataset",
-  },
-
-  r2_input_taskRef: {
-    type: String, // pointer to R2 file
-    required: true
+    ref: "Dataset"
   },
 
   // 2. ASSIGNMENT STATE
@@ -50,11 +62,7 @@ const taskSchema = new Schema({
     type: Boolean,
     default: false
   },
-  verifiedBy: {
-    type: Schema.Types.ObjectId,
-    ref: "UserVera",
-    default: null
-  },
+
   assignedTo: {
     type: Schema.Types.ObjectId,
     ref: "UserVera",
@@ -62,6 +70,7 @@ const taskSchema = new Schema({
   },
 
   assignedAt: Date,
+
   // 3. WORK STATE
   status: {
     type: String,
@@ -78,16 +87,18 @@ const taskSchema = new Schema({
   startedAt: Date,
   completedAt: Date,
 
-  // 4. OUTPUT 
+  // 4. RESULT (REFERENCE ONLY, NOT RAW DATA)
   r2_task_resultRef: {
-    type: String, // pointer to stored output 
-    default:null
+    type: String,
+    default: null,
+    description: 'Reference path in R2 for the result/annotation'
   },
 
-  // optional inline result
-  result: {
-    type: Schema.Types.Mixed,
-    default: null
+  // Result metadata (not raw content)
+  resultMetadata: {
+    size: Number,
+    hash: String,
+    uploadedAt: Date
   },
 
   // 5. QUALITY CONTROL
@@ -96,10 +107,12 @@ const taskSchema = new Schema({
     ref: "UserVera",
     default: null
   },
+
   isAvailable: {
     type: Boolean,
     default: true
   },
+
   isVerified: {
     type: Boolean,
     default: false

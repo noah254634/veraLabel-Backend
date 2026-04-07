@@ -41,6 +41,7 @@
     "resend": "^6.9.2"
   },
   "devDependencies": {
+    "@types/node": "^25.5.2",
     "nodemon": "^3.1.11"
   }
 }
