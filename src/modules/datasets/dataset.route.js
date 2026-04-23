@@ -14,6 +14,9 @@ router.post(
   datasetController.createDataset
 );
 
+// Create a dataset request (buyer side)
+router.post("/createDatasetRequest", datasetController.createDatasetRequest);
+
 // Get all datasets
 router.get("/allDatasets", datasetController.getAllDatasets);
 router.post("/confirmUpload",datasetController.confirmUpload)

@@ -5,6 +5,22 @@ import path from "path";
 const envPath = path.resolve(process.cwd(), "src", ".env");
 dotenv.config({ path: envPath });
 
+// Helper to check if origin is a local network IP (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+export const isLocalNetworkOrigin = (origin) => {
+    if (!origin) return false;
+    
+    try {
+        const url = new URL(origin);
+        const hostname = url.hostname;
+        
+        // Match local network IP ranges
+        const localNetworkRegex = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/;
+        return localNetworkRegex.test(hostname);
+    } catch {
+        return false;
+    }
+};
+
 const buildEnv = (processEnv = process.env, options = {}) => {
     const { debug = false } = options;
     

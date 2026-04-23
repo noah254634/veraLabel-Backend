@@ -2,18 +2,21 @@ import express from "express";
 import analyticsController from "../analytics/analytics.controller.js";
 import authorize from "../../middlewares/authorization.middleware.js";
 import { adminController } from "./admin.controller.js";
+import settingsRouter from "./routes/settings.route.js";
 const router=express.Router();
 
 
 router.use(authorize("admin"))
 // router.get("/users",()=>{});                     // list users (filters, pagination)
 // router.get("/users/:id",()=>{}); 
+
 router.get("/analytics/overview",analyticsController.overview)
 router.put("/users/:id/suspend",adminController.suspendUser);         // temporary ban
 router.put("/users/:id/ban",adminController.banUser);             // permanent ban
 router.put("/users/:id/block",adminController.blockUser);        // block/unblock pair
 //router.delete("/users/:id",adminController.deleteUser);              // hard delete (rare)
 router.put("/users/:id/promote",adminController.promoteUser);          // user → admin / moderator
+router.put("/users/:id/promote-to-reviewer",adminController.promoteToReviewer); // user → reviewer
 router.put("/users/:id/demote",adminController.demoteUser);           // admin → user
 //router.put("/users/:id/assign-role",adminController.assignRole);      // generic RBAC
 router.get("/datasets/pending",adminController.pendingDatasets);
@@ -61,4 +64,8 @@ router.get("/me");
 router.put("/me/password");
 router.put("/me/2fa-enable");
 router.put("/me/2fa-disable");*/
+
+// Settings management routes
+router.use("/settings", settingsRouter);
+
 export default router;

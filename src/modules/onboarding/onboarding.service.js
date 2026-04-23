@@ -1,7 +1,7 @@
 import TrainingMaterial from "./model/onboarding.articles.js";
 import TrainingQuiz from "./model/onboarding.quizzes.js";
 import UserVera from "../users/user.model.js";
-import Labeller from "./model/onboarding.labeller.js";
+import Labeller from "../labeller/labeller.model.js";
 import AssessmentAttempt from "./model/assessment.attempt.js";
 export const onboardingService = {
   createLabellerProfile: async (

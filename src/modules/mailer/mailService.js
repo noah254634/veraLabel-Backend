@@ -186,5 +186,161 @@ const mailService = {
         html
     })
   },
+
+  // ===== LABELLER PROMOTION & RATING EMAILS =====
+  sendLabellerPromotionNotificationToAdmin: async ({
+    labellerName,
+    labellerEmail,
+    previousTier,
+    newTier,
+    metrics
+  }) => {
+    try {
+      if (!labellerName || !labellerEmail || !previousTier || !newTier) {
+        throw new Error('Missing required promotion notification fields');
+      }
+
+      // Get admin email(s) - fetch all admins
+      const admins = await UserVera.find({ role: 'admin' }).select('email name');
+      
+      if (!admins || admins.length === 0) {
+        logger.warn('No admin emails found for promotion notification');
+        return;
+      }
+
+      const adminEmails = admins.map(admin => admin.email).join(',');
+
+      const metricsDisplay = `
+        <li><strong>Average Quality Score:</strong> ${metrics.averageQualityScore.toFixed(2)}/5.0</li>
+        <li><strong>Approval Rate:</strong> ${metrics.approvalRate.toFixed(2)}%</li>
+        <li><strong>Tasks Completed:</strong> ${metrics.totalTasksCompleted}</li>
+      `;
+
+      const html = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f9f9f9;">
+          <h2 style="color: #2c3e50;">🎉 Labeller Promotion Alert</h2>
+          
+          <p style="font-size: 16px;">A labeller has been automatically promoted based on performance metrics:</p>
+          
+          <div style="background-color: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #27ae60;">
+            <p><strong>Labeller Name:</strong> ${labellerName}</p>
+            <p><strong>Email:</strong> <a href="mailto:${labellerEmail}">${labellerEmail}</a></p>
+            <p><strong>Previous Tier:</strong> <span style="color: #e74c3c;">${previousTier}</span></p>
+            <p><strong>New Tier:</strong> <span style="color: #27ae60; font-weight: bold;">⭐ ${newTier}</span></p>
+          </div>
+
+          <div style="background-color: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3>Performance Metrics:</h3>
+            <ul style="list-style: none; padding: 0;">
+              ${metricsDisplay}
+            </ul>
+          </div>
+
+          <div style="background-color: #ecf0f1; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Action Required:</strong> You can review this promotion and the labeller's profile to ensure the promotion is appropriate.</p>
+          </div>
+
+          <p style="color: #7f8c8d; font-size: 12px; margin-top: 30px;">
+            This is an automated notification from the VeraLabel system.
+          </p>
+        </div>
+      `;
+
+      await sendEmail({
+        to: adminEmails,
+        subject: `🎉 Labeller Promotion: ${labellerName} → ${newTier}`,
+        html,
+      });
+
+      logger.info('Promotion notification sent to admins', {
+        labellerName,
+        labellerEmail,
+        newTier,
+        adminCount: admins.length
+      });
+
+    } catch (error) {
+      logger.error('Error sending promotion notification email', {
+        error: error.message,
+        labellerName,
+        newTier
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Send notification to labeller about their promotion
+   */
+  sendLabellerPromotionEmail: async (labellerName, labellerEmail, newTier) => {
+    try {
+      if (!labellerName || !labellerEmail || !newTier) {
+        throw new Error('Missing required promotion email fields');
+      }
+
+      const tierBadges = {
+        'Bronze': '🥉',
+        'Silver': '🥈',
+        'Gold': '🥇'
+      };
+
+      const tierBenefits = {
+        'Bronze': 'Access to more task types and higher-paying projects',
+        'Silver': 'Priority task assignments and exclusive datasets',
+        'Gold': 'Premium projects, highest pay rates, and special perks'
+      };
+
+      const html = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f9f9f9;">
+          <h2 style="color: #2c3e50;">🎉 Congratulations! You\'ve Been Promoted!</h2>
+          
+          <p style="font-size: 16px;">Dear ${labellerName},</p>
+          
+          <p>We\'re thrilled to inform you that your excellent performance has earned you a promotion!</p>
+
+          <div style="background-color: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f39c12; text-align: center;">
+            <p style="font-size: 48px; margin: 10px 0;">${tierBadges[newTier] || '⭐'}</p>
+            <h3 style="color: #27ae60; margin: 0;">You are now a <strong>${newTier}</strong> Labeller</h3>
+          </div>
+
+          <div style="background-color: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3>What This Means For You:</h3>
+            <p style="font-size: 16px; line-height: 1.6;">
+              ${tierBenefits[newTier] || 'Continue to unlock more opportunities as you improve!'}
+            </p>
+          </div>
+
+          <div style="background-color: #ecf0f1; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Keep Up The Great Work!</strong> Your dedication to quality work is appreciated. Continue to maintain these high standards to unlock even more opportunities.</p>
+          </div>
+
+          <p style="color: #7f8c8d; font-size: 12px; margin-top: 30px;">
+            Best regards,<br/>
+            The VeraLabel Team
+          </p>
+        </div>
+      `;
+
+      await sendEmail({
+        to: labellerEmail,
+        subject: `🎉 Congratulations! You\'ve been promoted to ${newTier}`,
+        html,
+      });
+
+      logger.info('Promotion email sent to labeller', {
+        labellerName,
+        labellerEmail,
+        newTier
+      });
+
+    } catch (error) {
+      logger.error('Error sending labeller promotion email', {
+        error: error.message,
+        labellerName,
+        newTier
+      });
+      throw error;
+    }
+  }
 };
 export default mailService;

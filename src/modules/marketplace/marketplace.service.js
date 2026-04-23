@@ -40,22 +40,18 @@ export const marketplaceService = {
   getdatasetOrders: async (buyerId) => {
     const userExists = await UserVera.findOne({ _id: buyerId, role: "buyer" });
     if (!userExists) throw new Error("Unauthorized access or user not a buyer");
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
+    
     const datasetOrders = await DatasetRequest.aggregate([
       {
         $match: {
           buyerId: buyerId,
-          //status: "done",
-          createdAt: { $gte: sevenDaysAgo },
         },
       },
       { $sort: { createdAt: -1 } }, // newest first
       { $limit: 8 },
       {
         $project: {
-          _id: 0,
+          _id: 1,
           datasetId: 1,
           createdAt: 1,
           price: 1,
@@ -67,44 +63,19 @@ export const marketplaceService = {
           sourceLink: 1,
           fileUrl: 1,
           status: 1,
+          timeline: 1,
+          qualityMetrics: 1,
+          isPaid: 1,
+          itemsCompleted: 1,
+          assignedLabelerId: 1,
+          downloadUrl: 1,
+          reportReason: 1,
+          canBeCancelled: 1,
         },
       },
     ]);
 
     return datasetOrders;
-  },
-
-  DatasetRequest: async (
-    domain,
-    specifications,
-    volume,
-    format,
-    budget,
-    sourceLink,
-    uploadedFile,
-    userId,
-  ) => {
-    const userExists = await UserVera.findOne({ _id: userId, role: "buyer" });
-    if (!userExists) throw new Error("Unauthorized access or user not a buyer");
-    if (!domain) throw new Error("Domain is required");
-    if (!specifications) throw new Error("Specifications is required");
-    if (!volume) throw new Error("Volume is required");
-    if (!budget) throw new Error("Budget is required");
-    if (!format) throw new Error("Format is required");
-    if (!sourceLink && !uploadedFile)
-      throw new Error("Source link or uploaded file is required");
-    let formatted = "$" + budget.toString();
-    const dataset = await DatasetRequest.create({
-      domain,
-      description: specifications,
-      volume,
-      budget: formatted,
-      format,
-      buyerId: userId,
-      sourceLink,
-      fileUrl: uploadedFile ? uploadedFile.location : null,
-    });
-    return dataset;
   },
   unpublishDataset: async (id) => {
     if (!id) throw new Error("Id not found");
@@ -149,5 +120,31 @@ export const marketplaceService = {
       isPublished: true,
     });
     return datasets;
+  },
+  
+  cancelPayment: async (orderId, buyerId) => {
+    const order = await DatasetRequest.findOne({ _id: orderId, buyerId });
+    if (!order) throw new Error("Order not found or unauthorized");
+    if (!order.canBeCancelled) throw new Error("This order cannot be cancelled");
+    if (order.status !== "pending") throw new Error("Can only cancel pending orders");
+    
+    const updatedOrder = await DatasetRequest.findByIdAndUpdate(
+      orderId,
+      { status: "failed", canBeCancelled: false },
+      { new: true }
+    );
+    return updatedOrder;
+  },
+
+  reportIssue: async (orderId, buyerId, reason) => {
+    const order = await DatasetRequest.findOne({ _id: orderId, buyerId });
+    if (!order) throw new Error("Order not found or unauthorized");
+    
+    const updatedOrder = await DatasetRequest.findByIdAndUpdate(
+      orderId,
+      { reportReason: reason },
+      { new: true }
+    );
+    return updatedOrder;
   },
 };

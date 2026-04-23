@@ -49,7 +49,7 @@ const paymentSchema = new mongoose.Schema(
 
     purpose: {
       type: String,
-      enum: ['dataset_purchase', 'subscription', 'credits', 'custom_job'],
+      enum: ['dataset_purchase', 'subscription', 'credits', 'custom_job', 'dataset_request_escrow'],
       default:"dataset_purchase",
       required: true
     },

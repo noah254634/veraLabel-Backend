@@ -23,37 +23,6 @@ export const marketplaceController = {
       return res.status(500).json({ message: err.message });
     }
   },
-  createDatasetRequest: async (req, res) => {
-    try {
-      const body = req.body;
-      logger.info(JSON.stringify(body));
-      const {
-        domain,
-        specifications,
-        volume,
-        format,
-        budget,
-        sourceLink,
-      } = body;
-      const uploadedFile = req.file;
-      const userId = req.user?._id;
-      if (!userId) return res.status(401).json({ message: "Unauthorized" });
-      const response = await marketplaceService.DatasetRequest(
-        domain,
-        specifications,    
-        volume,
-        format,
-        budget,
-        sourceLink,
-        uploadedFile,
-        userId,
-      );
-      return res.status(200).json({ response });
-    } catch (err) {
-      logger.error(err.message);
-      return res.status(500).json({ message: err.message });
-    }
-  },
   createOrder: async (req, res) => {
     try {
       console.log(req.body);
@@ -100,6 +69,31 @@ export const marketplaceController = {
       const datasets = await marketplaceService.querydatasetByTitle(title);
       return res.status(200).json({ datasets });
     } catch (err) {
+      return res.status(500).json({ message: err.message });
+    }
+  },
+  
+  cancelPayment: async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const buyerId = req.user._id;
+      const response = await marketplaceService.cancelPayment(orderId, buyerId);
+      return res.status(200).json({ message: "Payment cancelled successfully", response });
+    } catch (err) {
+      logger.error(err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  },
+
+  reportIssue: async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const { reason } = req.body;
+      const buyerId = req.user._id;
+      const response = await marketplaceService.reportIssue(orderId, buyerId, reason);
+      return res.status(200).json({ message: "Issue reported successfully", response });
+    } catch (err) {
+      logger.error(err.message);
       return res.status(500).json({ message: err.message });
     }
   },

@@ -5,14 +5,13 @@ const logger = pino({
   transport:
     process.env.NODE_ENV !== "production"
       ? {
-        
           target: "pino-pretty",
           options: {
             colorize: true,
             translateTime: true,
-            ignore: "pid,hostname", // optional: hide fields you don’t need
-           colorize: true ,// colorize the output for development,
-        }}
+            ignore: "pid,hostname"
+          }
+        }
       : undefined
 });
 

@@ -122,6 +122,19 @@ publishDataset: async (req, res) => {
       return res.status(400).json({ message: err.message });
     }
   },
+  promoteToReviewer: async (req, res) => {
+    try {
+      logger.info("Promoting user to reviewer");
+      const {reason}=req.body;
+      logger.info(`Promoting user with id: ${req.params.id} to reviewer for reason: ${reason}`);
+      const { id } = req.params;
+      const user = await adminService.promoteToReviewerById(id);
+      return res.json(user);
+    } catch (err) {
+      logger.error(`Error promoting user to reviewer: ${err.message}`);
+      return res.status(400).json({ message: err.message });
+    }
+  },
 
   promoteUser: async (req, res) => {
     try {

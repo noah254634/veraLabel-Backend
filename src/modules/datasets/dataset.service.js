@@ -3,39 +3,9 @@ import { PutObjectCommand, PutBucketCorsCommand, CreateBucketCommand } from "@aw
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { v4 as uuidv4 } from "uuid";
 import { r2 } from "../../config/r2Upload.js";
-
-const ensureCorsConfigured = async () => {
-  try {
-    const command = new PutBucketCorsCommand({
-      Bucket: process.env.R2_BUCKET_NAME,
-      CORSConfiguration: {
-        CORSRules: [
-          {
-            AllowedHeaders: ["*"],
-            AllowedMethods: ["PUT", "POST", "GET", "HEAD"],
-            AllowedOrigins: ["*"],
-            ExposeHeaders: ["ETag"],
-            MaxAgeSeconds: 3000,
-          },
-        ],
-      },
-    });
-    await r2.send(command);
-  } catch (error) {
-    if (error.name === 'NoSuchBucket' || error.message?.includes('The specified bucket does not exist')) {
-      console.info(`Bucket '${process.env.R2_BUCKET_NAME}' not found. Attempting to create it...`);
-      try {
-        await r2.send(new CreateBucketCommand({ Bucket: process.env.R2_BUCKET_NAME }));
-        console.info(`Bucket '${process.env.R2_BUCKET_NAME}' created successfully.`);
-        await ensureCorsConfigured(); 
-      } catch (createError) {
-        console.error("Failed to create R2 bucket:", createError.message);
-      }
-    } else {
-      console.warn("Warning: Failed to configure R2 CORS:", error.message);
-    }
-  }
-};
+import DatasetRequest from "../marketplace/request.model.js";
+import UserVera from "../users/user.model.js";
+import ensureCorsConfigured from "../../helpers/r2CorsConfiguration.js";
 
 export const datasetService = {
   generateUploadUrl: async (userId, fileType) => {
@@ -168,5 +138,40 @@ export const datasetService = {
         },
       },
     ]);
+  },
+  createDatasetRequest: async (
+    domain,
+    specifications,
+    volume,
+    format,
+    budget,
+    fileUrl,
+    timeline,
+    qualityMetrics,
+    userId,
+  ) => {
+    const userExists = await UserVera.findOne({ _id: userId, role: "buyer" });
+    if (!userExists) throw new Error("Unauthorized access or user not a buyer");
+    if (!domain) throw new Error("Domain is required");
+    if (!specifications) throw new Error("Specifications is required");
+    if (!volume) throw new Error("Volume is required");
+    if (!format) throw new Error("Format is required");
+    if (!fileUrl) throw new Error("File URL is required - upload file first using /datasets/generateUploadUrl");
+    if (!timeline) throw new Error("Timeline/SLA is required");
+    
+    let formatted = "$" + budget.toString();
+    const dataset = await DatasetRequest.create({
+      domain,
+      description: specifications,
+      volume,
+      budget: formatted,
+      format,
+      timeline,
+      qualityMetrics: qualityMetrics || "",
+      buyerId: userId,
+      sourceLink: fileUrl,
+      fileUrl: fileUrl,
+    });
+    return dataset;
   },
 };

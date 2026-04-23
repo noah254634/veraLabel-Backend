@@ -4,109 +4,93 @@ import { authService} from "./auth.service.js";
 import mailService from "../mailer/mailService.js";
 import { generateAccessToken,generateRefreshToken,setAuthCookies,clearAuthCookies, setAccessTokenCookie } from "./auth.cookie.js";
 import logger from "../../config/logger.js";
+import { asyncHandler, AppError } from "../../middlewares/errorHandler.middleware.js";
+
 export const authController={
-  getMe:async (req,res)=>{
-    try{
-      const user=req.user;
-      return res.status(200).json({
-        message:"User fetched successfully",
-        user
-      })
-    }catch(err){
-      logger.error(`Error in getMe: ${err.message}`);
-      return res.status(400).json({error:err.message});
-    }
-  },
-signup:async (req, res) => {
-  try {
+  getMe: asyncHandler(async (req,res)=>{
+    const user=req.user;
+    if (!user) throw new AppError("User not found", 404);
+    return res.status(200).json({
+      message:"User fetched successfully",
+      user
+    })
+  }),
+  
+signup: asyncHandler(async (req, res) => {
     logger.info(req.body)
     const dto = validateSignup(req.body);
     logger.info({ email: dto.email }, "Signup attempt");
     const user = await authService.createUser(dto);
+    if (!user) throw new AppError("Failed to create user", 400);
+    
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
     setAuthCookies(res, accessToken, refreshToken);
-    //await mailService.sendWelcomeEmail(user.email, user.name);
     return res.status(201).json({
       message: "User created successfully",
       user,
     });
-  } catch (err) {
-    logger.error(`Error in signup: ${err.message}`);
-    return res.status(400).json({ error: err.message });
-  }
-},
-login:async (req, res) => {
-    try{
-        const dto = validateLogin(req.body);
-        logger.info({ email: dto.email }, "Login attempt");
-        const user=await authService.loginUser(dto);
-        const accessToken=generateAccessToken(user);
-        const refreshToken=generateRefreshToken(user);
-        setAuthCookies(res,accessToken,refreshToken);
-        //await mailService.sendWelcomeEmail(user.email, user.name);
-        logger.info(`User ${user.email} logged in successfully`);
-        return res.status(200).json({
-            message:"User logged in successfully",
-            user
-        })
-    }catch(err){
-        logger.error(`Error in login: ${err.message}`);
-        return res.status(400).json({error:err.message});
-    }
-},
+}),
+
+login: asyncHandler(async (req, res) => {
+    const dto = validateLogin(req.body);
+    logger.info({ email: dto.email }, "Login attempt");
+    const user=await authService.loginUser(dto);
+    if (!user) throw new AppError("Invalid credentials", 401);
+    
+    // Remove password from user object before sending
+    const userResponse = user.toObject ? user.toObject() : user;
+    delete userResponse.password;
+    
+    const accessToken=generateAccessToken(user);
+    const refreshToken=generateRefreshToken(user);
+    setAuthCookies(res,accessToken,refreshToken);
+    logger.info(`User ${user.email} logged in successfully`);
+    return res.status(200).json({
+        message:"User logged in successfully",
+        user: userResponse
+    })
+}),
   
-refreshToken: async (req, res) => {
-    try {
-        const { refreshToken } = req.cookies;
-        if (!refreshToken) return res.status(401).json({ error: "Refresh token not found" });
+refreshToken: asyncHandler(async (req, res) => {
+    const { refreshToken } = req.cookies;
+    if (!refreshToken) throw new AppError("Refresh token not found", 401);
 
-        const accessToken = await authService.refreshAccessToken(refreshToken);
-        setAccessTokenCookie(res, accessToken);
-        return res.status(200).json({ message: "Access token refreshed successfully" });
-    } catch (err) {
-        return res.status(401).json({ error: `Token refresh failed: ${err.message}` });
-    }
-},
+    const accessToken = await authService.refreshAccessToken(refreshToken);
+    if (!accessToken) throw new AppError("Token refresh failed", 401);
+    
+    setAccessTokenCookie(res, accessToken);
+    return res.status(200).json({ message: "Access token refreshed successfully" });
+}),
 
-logout:async (req,res)=>{
+logout: asyncHandler(async (req,res)=>{
     clearAuthCookies(res);
     return res.status(200).json({
         message:"User logged out successfully"
     })
+}),
 
-},
-verifyEmail:async (req,res)=>{
+verifyEmail: asyncHandler(async (req,res)=>{
   const { email, token } = req.body;
-  try {
-    await mailService.verifyEmailAccount(email, token);
-    return res.status(200).json({ message: "Email verified successfully" });
-  } catch (err) {
-    logger.error(`Error in email verification: ${err.message}`);
-    return res.status(400).json({ error: err.message });
-  }
+  if (!email || !token) throw new AppError("Email and token are required", 400);
+  
+  await mailService.verifyEmailAccount(email, token);
+  return res.status(200).json({ message: "Email verified successfully" });
+}),
 
-},
-forgotPassword:async(req,res)=>{
-  try{
+forgotPassword: asyncHandler(async(req,res)=>{
   const { email } = req.body;
+  if (!email) throw new AppError("Email is required", 400);
+  
   const result=await authService.forgotPassword(email);
   return res.status(200).json({message:"Password reset email sent successfully",result});
-  }catch(err){
-    logger.error(`Error in forgotPassword: ${err.message}`);
-    return res.status(400).json({error:err.message});
-  }
+}),
 
-},
-resetPassword:async(req,res)=>{
-  try{
+resetPassword: asyncHandler(async(req,res)=>{
   const { email,token,password } = req.body;
-  if(!email || !token || !password) return res.status(400).json({error:"All fields are required"});
+  if(!email || !token || !password) throw new AppError("All fields are required", 400);
+  
   const result=await authService.resetPassword(email,token,password);
   return res.status(200).json({message:"Password reset successfully",result});
-  }catch(err){
-    logger.error(`Error in resetPassword: ${err.message}`);
-    return res.status(400).json({error:err.message});
-  }
-}
+})
 }

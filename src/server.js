@@ -7,7 +7,7 @@ import logger from "./config/logger.js";
 import startTaskCleanUp from "./helpers/cronJobs.js";
 
 const port=ENV().PORT||3000;
-const server=app.listen(port,()=>{
+const server=app.listen(port,"0.0.0.0",()=>{
     logger.info(`server running on http://localhost:${port}`);
     
     // Connect to DB first, then start cron jobs

@@ -1,6 +1,7 @@
 import Task from "./task.model.js";
 import UserVera from "../users/user.model.js";
 import Dataset from "../datasets/dataset.model.js";
+import Labeller from "../labeller/labeller.model.js";
 import mongoose from "mongoose";
 import { invoiceService } from "../../helpers/priceCalculator.js";
 import logger from "../../config/logger.js";
@@ -467,6 +468,8 @@ export const taskService = {
         throw new Error(`Task with ID ${id} not found`);
       }
 
+      const previousAssignee = task.assignedTo;
+
       task.status = "pending";
       task.isAssigned = false;
       task.assignedTo = null;
@@ -476,9 +479,24 @@ export const taskService = {
 
       await task.save();
 
+      // If task was assigned to someone, remove it from their Labeller profile
+      if (previousAssignee) {
+        await Labeller.findOneAndUpdate(
+          { userId: previousAssignee },
+          {
+            $pull: { currentAssignedTasks: id }
+          }
+        );
+
+        logger.info('Removed task from labeller profile', {
+          taskId: id,
+          userId: previousAssignee
+        });
+      }
+
       logger.info('Task returned to pool successfully', {
         taskId: id,
-        previousAssignee: task.assignedTo || 'unassigned',
+        previousAssignee: previousAssignee || 'unassigned',
       });
 
       return task;
@@ -491,17 +509,59 @@ export const taskService = {
     }
   },
   assignTask: async (taskId, userId) => {
-    const task = await Task.findById(taskId);
-    if (!task) throw new Error("Task not found");
-    const user = await UserVera.find({ _id: userId, role: "labeler" });
-    if (!user) throw new Error("User not found or not a labeler");
-    if (task.isAssigned) throw new Error("Task already assigned");
-    task.isAssigned = true;
-    task.assignedTo = userId;
-    task.assignedAt = new Date();
-    task.status = "in_progress";
-    await task.save();
-    return { message: "Task assigned successfully", task };
+    try {
+      if (!taskId || !userId) throw new Error("taskId and userId are required");
+      
+      const task = await Task.findById(taskId);
+      if (!task) throw new Error("Task not found");
+      
+      const user = await UserVera.findById(userId).select('role');
+      if (!user) throw new Error("User not found");
+      if (user.role !== "labeler") throw new Error("User is not a labeler");
+      if (task.isAssigned) throw new Error("Task already assigned");
+
+      // Update Task document
+      task.isAssigned = true;
+      task.assignedTo = userId;
+      task.assignedAt = new Date();
+      task.status = "in_progress";
+      await task.save();
+
+      // Update Labeller profile - track assignment and update metrics
+      const labeller = await Labeller.findOneAndUpdate(
+        { userId },
+        {
+          $addToSet: { currentAssignedTasks: task._id },
+          $inc: { 'performance.totalTasksAssigned': 1 }
+        },
+        { new: true }
+      ).select('currentAssignedTasks performance');
+
+      if (!labeller) throw new Error("Labeller profile not found for user");
+
+      logger.info('Task assigned successfully', {
+        taskId,
+        userId,
+        totalAssigned: labeller.performance.totalTasksAssigned,
+        currentTasks: labeller.currentAssignedTasks.length
+      });
+
+      return { 
+        message: "Task assigned successfully", 
+        task,
+        labeller: {
+          currentTasksCount: labeller.currentAssignedTasks.length,
+          totalAssigned: labeller.performance.totalTasksAssigned
+        }
+      };
+    } catch (error) {
+      logger.error('Error assigning task', {
+        error: error.message,
+        taskId,
+        userId
+      });
+      throw error;
+    }
   },
   submitTask: async (taskId, userId) => {
     if (!taskId) throw new Error("Task id is required");
@@ -529,16 +589,47 @@ export const taskService = {
     return { message: "Task verified successfully", task };
   },
   rejectTask: async (taskId, reason) => {
-    const task = await Task.findById(taskId);
-    if (!task) throw new Error("Task not found");
-    task.isVerified = false;
-    task.verifiedBy = null;
-    task.status = "rejected";
-    task.rejectionReason = reason;
-    task.verificationScore = 0;
-    await taskService.returnTaskToPool(taskId);
+    try {
+      if (!taskId) throw new Error("Task ID is required");
+      
+      const task = await Task.findById(taskId);
+      if (!task) throw new Error("Task not found");
 
-    return { message: "Task rejected successfully", task };
+      const labellerId = task.assignedTo;
+
+      task.isVerified = false;
+      task.verifiedBy = null;
+      task.status = "rejected";
+      task.rejectionReason = reason;
+      task.verificationScore = 0;
+      await task.save();
+
+      // Return task to pool (which removes it from labeller's currentAssignedTasks)
+      await taskService.returnTaskToPool(taskId);
+
+      // Update labeller's rejection count
+      if (labellerId) {
+        await Labeller.findOneAndUpdate(
+          { userId: labellerId },
+          {
+            $inc: { 'performance.totalTasksRejected': 1 }
+          }
+        );
+
+        logger.info('Updated labeller rejection metrics', {
+          taskId,
+          userId: labellerId
+        });
+      }
+
+      return { message: "Task rejected successfully", task };
+    } catch (error) {
+      logger.error('Error rejecting task', {
+        error: error.message,
+        taskId
+      });
+      throw error;
+    }
   },
   deleteTaskBatch: async () => {
 

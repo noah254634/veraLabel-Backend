@@ -2,6 +2,17 @@ import mongoose from "mongoose";
 import Dataset from "../datasets/dataset.model.js";
 import UserVera from "../users/user.model.js";
 export const adminService = {
+  promoteToReviewerById: async (id) => {
+    if (!id) throw new Error("Id  required to do this action");
+    const user = await UserVera.findByIdAndUpdate(
+      id,
+      { role: "reviewer" },
+      { new: true },
+    );
+    if (!user) throw new Error("User not found");
+    return user;
+  },
+
   verifyUserById: async (id) => {
     if (!id) throw new Error("Id not found");
     const user = await UserVera.findByIdAndUpdate(

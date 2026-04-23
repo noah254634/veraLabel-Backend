@@ -37,18 +37,19 @@ export const datasetController = {
   createDataset: async (req, res) => {
     try {
       console.log("here is the body:", req.body);
-      const { name, description, price, datasetType, datasetFormat } = req.body;
+      const { intent, description,volume,budget, datasetType, format } = req.body;
       const datasetLabeler = req.user._id;
       const file = req.file;
       if (!file) return res.status(401).json({ message: "File is required" });
       const datasetId = req.datasetId;
       const dataset = await datasetService.createDataset(
-        name,
+        intent ,
         description,
-        price,
+        volume,
+        budget,
         datasetLabeler,
         datasetType,
-        datasetFormat,
+        format,
         file,
         datasetId,
       );
@@ -109,6 +110,40 @@ export const datasetController = {
       return res.json(datasets);
     } catch (err) {
       return res.status(400).json({ message: err.message });
+    }
+  },
+  createDatasetRequest: async (req, res) => {
+    try {
+      const body = req.body;
+      logger.info(JSON.stringify(body));
+      const {
+        domain,
+        specifications,
+        volume,
+        format,
+        budget,
+        fileUrl,
+        timeline,
+        qualityMetrics,
+      } = body;
+     
+      const userId = req.user?._id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const response = await datasetService.createDatasetRequest(
+        domain,
+        specifications,    
+        volume,
+        format,
+        budget,
+        fileUrl,
+        timeline,
+        qualityMetrics,
+        userId,
+      );
+      return res.status(200).json({ response });
+    } catch (err) {
+      logger.error(err.message);
+      return res.status(500).json({ message: err.message });
     }
   },
 };
