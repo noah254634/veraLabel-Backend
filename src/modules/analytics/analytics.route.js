@@ -1,5 +1,6 @@
 import express from "express";
 import analyticsController from "./analytics.controller.js";
+import labellerAnalyticsRouter from "../labeller/labeller.analytics.routes.js";
 
 const router = express.Router();
 
@@ -7,7 +8,11 @@ const notImplemented = (req, res) => {
   return res.status(501).json({ error: "Not implemented" });
 };
 
-router.get("/platformOverview", analyticsController.overview);          // total, active, growth
+router.get("/platformOverview", analyticsController.overview);
+
+// Mount labeller analytics routes under /labellers
+router.use("/labellers", labellerAnalyticsRouter);
+
 router.get("/users/registrations", notImplemented);   // per day/week/month
 router.get("/users/activity", notImplemented);        // DAU / MAU
 router.get("/users/retention", notImplemented);       // cohort analysis

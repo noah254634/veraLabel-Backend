@@ -10,7 +10,7 @@ const port=ENV().PORT||3000;
 const server=app.listen(port,"0.0.0.0",()=>{
     logger.info(`server running on http://localhost:${port}`);
     
-    // Connect to DB first, then start cron jobs
+
     connectDB().then(() => {
         logger.info("Database connected successfully, starting task cleanup");
         startTaskCleanUp();
@@ -18,7 +18,7 @@ const server=app.listen(port,"0.0.0.0",()=>{
         logger.error("Failed to start task cleanup due to DB connection error");
     });
 });
-//ERROR HANDLING AND CLOSING OF SERVER
+
 const shutdown=async(signal)=>{
     try{
     logger.info(`Received ${signal} and shutting down gracefully`);

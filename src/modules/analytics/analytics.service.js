@@ -32,7 +32,7 @@ const analyticsService = {
     const startOfToday = new Date(now.setHours(0, 0, 0, 0));
     const startOfMonth = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), 1));
 
-    // Run in parallel
+
     const [
       totalUsers,
       newUsersToday,

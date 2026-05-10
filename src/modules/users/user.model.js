@@ -63,10 +63,10 @@ const userSchema=new mongoose.Schema({
       }
     },
  
-       // Account status
+
     isVerified: {
       type: Boolean,
-      default: false, // email / KYC later
+      default: false,
     },
 
     isActive: {
@@ -74,18 +74,18 @@ const userSchema=new mongoose.Schema({
       default: true,
     },
 
-    // Trust & quality (VERY Veralabel-specific)
+
     trustScore: {
       type: Number,
-      default: 0, // increases with good labels
+      default: 0,
     },
 
-    // Auth / security
+
     lastLoginAt: {
       type: Date,
     },
 
-    // Soft deletion 
+
     deletedAt: {
       type: Date,
       default: null,
@@ -107,6 +107,11 @@ const userSchema=new mongoose.Schema({
             type:Date,
             default:Date.now
         }
+    },
+
+    fcmToken: {
+      type: String,
+      default: null,
     },
   },{
     timestamps:true

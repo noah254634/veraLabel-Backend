@@ -1,13 +1,11 @@
 import express from 'express';
 import { labellerAnalyticsController } from './labeller.analytics.controller.js';
-import { auth } from '../../middlewares/auth.middleware.js';
-import { authorization } from '../../middlewares/authorization.middleware.js';
+import  authorize  from '../../middlewares/authorization.middleware.js';
 
 const router = express.Router();
 
 // All analytics endpoints require auth and admin/reviewer role
-router.use(auth);
-router.use(authorization(['admin', 'superadmin', 'reviewer']));
+router.use(authorize('admin', 'superadmin', 'reviewer'));
 
 // Overview & Dashboard
 router.get('/overview', labellerAnalyticsController.getOverview);

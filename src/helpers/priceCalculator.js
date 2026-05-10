@@ -1,29 +1,29 @@
 import logger from '../config/logger.js';
 
-// Pricing tiers based on task volume
+
 const PRICING_TIERS = {
   rlhf: {
-    baserate: 1.5,  // $1.50 per unit (RLHF is complex, high value)
+    baserate: 1.5,
     description: 'RLHF (Reinforcement Learning from Human Feedback)',
     tier_multipliers: {
-      small: 1.0,     // 1-100 units
-      medium: 0.9,    // 101-1000 units (-10% volume discount)
-      large: 0.8,     // 1001-10000 units (-20% volume discount)
-      enterprise: 0.7 // 10000+ units (-30% volume discount)
+      small: 1.0,
+      medium: 0.9,
+      large: 0.8,
+      enterprise: 0.7
     }
   },
   images: {
-    baserate: 0.50,  // $0.50 per image (faster than RLHF, lower complexity)
+    baserate: 0.50,
     description: 'Image annotation/labeling',
     tier_multipliers: {
       small: 1.0,
-      medium: 0.95,   // -5% for volume
-      large: 0.85,    // -15% for volume
-      enterprise: 0.75 // -25% for volume
+      medium: 0.95,
+      large: 0.85,
+      enterprise: 0.75
     }
   },
   videos: {
-    baserate: 1.5,   // $1.50 per unit (time-consuming, high complexity)
+    baserate: 1.5,
     description: 'Video annotation/labeling',
     tier_multipliers: {
       small: 1.0,
@@ -33,7 +33,7 @@ const PRICING_TIERS = {
     }
   },
   audio: {
-    baserate: 0.75,  // $0.75 per unit (transcription/annotation)
+    baserate: 0.75,
     description: 'Audio transcription/annotation',
     tier_multipliers: {
       small: 1.0,
@@ -43,7 +43,7 @@ const PRICING_TIERS = {
     }
   },
   text: {
-    baserate: 0.60,  // $0.60 per unit (straightforward but high volume)
+    baserate: 0.60,
     description: 'Text annotation/labeling',
     tier_multipliers: {
       small: 1.0,
@@ -53,7 +53,7 @@ const PRICING_TIERS = {
     }
   },
   code: {
-    baserate: 1.25,  // $1.25 per unit (requires expertise)
+    baserate: 1.25,
     description: 'Code review/annotation',
     tier_multipliers: {
       small: 1.0,
@@ -64,16 +64,14 @@ const PRICING_TIERS = {
   },
 };
 
-// Cost multipliers (percentage of base price to add as overhead)
+
 const COST_MULTIPLIERS = {
-  engineering: 0.2,      // 20% engineering overhead
-  maintenance: 0.25,     // 25% maintenance cost (on subtotal)
-  platform: 0.15,        // 15% platform fee
+  engineering: 0.2,
+  maintenance: 0.25,
+  platform: 0.15,
 };
 
-/**
- * Determine pricing tier based on volume
- */
+
 const getPricingTier = (rowsCount) => {
   if (rowsCount <= 100) return 'small';
   if (rowsCount <= 1000) return 'medium';
@@ -81,9 +79,7 @@ const getPricingTier = (rowsCount) => {
   return 'enterprise';
 };
 
-/**
- * Calculate effective rate based on volume
- */
+
 const getEffectiveRate = (taskType, rowsCount) => {
   const normalizedType = String(taskType || "").trim().toLowerCase();
   
@@ -105,12 +101,10 @@ const getEffectiveRate = (taskType, rowsCount) => {
 };
 
 export const invoiceService = {
-  /**
-   * Generate detailed invoice with breakdown
-   */
+
   generateInvoice: async (taskType, rowsCount) => {
     try {
-      // Validate inputs
+
       if (!taskType || typeof taskType !== 'string') {
         throw new Error('taskType is required and must be a string');
       }
@@ -146,38 +140,38 @@ export const invoiceService = {
         throw new Error(`Unsupported task type for invoicing: ${taskType}`);
       }
 
-      // Get pricing information
+
       const { tier, effectiveRate, baserate, multiplier } = getEffectiveRate(normalizedType, rowsCount);
       const rateInfo = PRICING_TIERS[normalizedType];
 
-      // Calculate base price
+
       const basePrice = rowsCount * effectiveRate;
       
-      // Calculate costs and fees
+
       const engineeringCost = basePrice * COST_MULTIPLIERS.engineering;
       const platformFee = basePrice * COST_MULTIPLIERS.platform;
       const subtotal = basePrice + engineeringCost + platformFee;
       const maintenanceCost = subtotal * COST_MULTIPLIERS.maintenance;
       const totalCost = subtotal + maintenanceCost;
 
-      // Calculate effective discount
+
       const discountedAmount = rowsCount * baserate - basePrice;
       const discountPercent = ((baserate - effectiveRate) / baserate * 100).toFixed(2);
 
       const invoice = {
-        // Basic info
+
         taskType: normalizedType,
         description: rateInfo.description,
         rowsCount,
         currency: "USD",
 
-        // Pricing details
+
         tier,
         unitRate: effectiveRate,
         baseRate: baserate,
         tierMultiplier: multiplier,
 
-        // Costs breakdown
+
         breakdown: {
           items: rowsCount,
           unitRate: effectiveRate,
@@ -189,7 +183,7 @@ export const invoiceService = {
           maintenance: maintenanceCost,
         },
 
-        // Totals
+
         price: basePrice,
         basePrice,
         engineeringCost,
@@ -197,7 +191,7 @@ export const invoiceService = {
         maintenanceCost,
         totalCost: parseFloat(totalCost.toFixed(2)),
 
-        // Metadata
+
         calculatedAt: new Date().toISOString(),
       };
 
@@ -222,9 +216,7 @@ export const invoiceService = {
     }
   },
 
-  /**
-   * Get pricing structure for a task type
-   */
+
   getPricingInfo: (taskType) => {
     try {
       const normalizedType = String(taskType || "").trim().toLowerCase();
@@ -254,9 +246,7 @@ export const invoiceService = {
     }
   },
 
-  /**
-   * Get all supported task types with pricing
-   */
+
   getAllPricingTiers: () => {
     const tiers = [];
 

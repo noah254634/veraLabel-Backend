@@ -4,7 +4,7 @@ import logger from "../../../config/logger.js";
 import crypto from "crypto";
 import { ENV } from "../../../config/env.js";
 import Dataset from "../../datasets/dataset.model.js";
-import DatasetRequest from "../../marketplace/request.model.js";
+import Invoice from "../../datasets/invoice.model.js";
 export const PaymentController = {
   success: async (req, res) => {
     try {
@@ -99,9 +99,17 @@ export const PaymentController = {
         }
         
         const buyerId = req.user._id;
-        logger.info("Creating escrow payment for dataset request");
+        logger.info("Creating order and escrow payment for dataset request");
+        
+        const order = await marketplaceService.createOrder(
+          buyerId,
+          requestId, // datasetId
+          reference,
+          parsedAmount,
+        );
+
         const result = await PaymentService.createPayment({
-          order: requestId,
+          order: order._id,
           user: req.user,
           amount: parsedAmount,
           currency:"USD",
@@ -113,13 +121,7 @@ export const PaymentController = {
           purpose: "dataset_request_escrow",
         });
         
-        // Update dataset request status to processing and mark as paid
-        await DatasetRequest.findByIdAndUpdate(
-          requestId,
-          { status: "processing", isPaid: true },
-          { new: true }
-        );
-        
+        // Dataset status will be updated upon successful webhook verification
         return res.status(201).json({
           message: "Escrow payment initiated successfully",
           requestId,
@@ -157,10 +159,16 @@ export const PaymentController = {
 
   getPaymentHistory: async (req, res) => {
     try {
-      const payments = await PaymentService.getPaymentHistory(req.user._id);
+      const userId = req.user?._id;
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized - User not found" });
+      }
+
+      const payments = await PaymentService.getPaymentHistory(userId);
       return res.json(payments);
     } catch (err) {
-      return res.status(400).json({ message: err.message });
+      console.error('Error fetching payment history:', err);
+      return res.status(500).json({ message: err.message });
     }
   },
 };

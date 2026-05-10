@@ -16,7 +16,7 @@ export const reviewerController = {
         return res.status(500).json({error:err.message})
     }
     },
-  // Rate a labeller's task submission (1-5 stars, quality score)
+
   rateTask: async (req, res) => {
     try {
       const { taskId } = req.params;
@@ -39,7 +39,7 @@ export const reviewerController = {
     }
   },
 
-  // Submit detailed feedback on a task
+
   submitFeedback: async (req, res) => {
     try {
       const { taskId } = req.params;
@@ -68,7 +68,7 @@ export const reviewerController = {
     }
   },
 
-  // Get all tasks pending review for this reviewer
+
   getPendingReviewTasks: async (req, res) => {
     try {
       const reviewerId = req.user._id;
@@ -86,7 +86,7 @@ export const reviewerController = {
     }
   },
 
-  // Get completed reviews by this reviewer
+
   getCompletedReviews: async (req, res) => {
     try {
       const reviewerId = req.user._id;
@@ -104,7 +104,7 @@ export const reviewerController = {
     }
   },
 
-  // Get reviewer performance stats
+
   getReviewerStats: async (req, res) => {
     try {
       const reviewerId = req.user._id;
@@ -121,7 +121,7 @@ export const reviewerController = {
     }
   },
 
-  // Get specific task details for review
+
   getTaskForReview: async (req, res) => {
     try {
       const { taskId } = req.params;
@@ -141,7 +141,7 @@ export const reviewerController = {
     }
   },
 
-  // Approve a labeller's submission
+
   approveSubmission: async (req, res) => {
     try {
       const { taskId } = req.params;
@@ -163,7 +163,7 @@ export const reviewerController = {
     }
   },
 
-  // Reject a labeller's submission with reason
+
   rejectSubmission: async (req, res) => {
     try {
       const { taskId } = req.params;

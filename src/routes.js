@@ -19,11 +19,12 @@ import { asyncHandler, AppError } from "./middlewares/errorHandler.middleware.js
 import { geoMiddleware } from "./middlewares/geo.middleware.js";
 import reviewRouter from "./modules/reviewer/reviewer.route.js";
 import { createRateLimiter } from "./middlewares/rateLimit.middleware.js";
-
+import labellerRouter from "./modules/labeller/labeller.routes.js";
+import notificationRouter from "./modules/notifications/notification.route.js";
 const router=express.Router();
 
 
-// TEMPORARY: Dev-only admin setup endpoint (remove in production)
+
 router.put("/admin/promote-by-email/:email", asyncHandler(async (req, res) => {
   const { email } = req.params;
   if (!email) throw new AppError("Email is required", 400);
@@ -33,8 +34,8 @@ router.put("/admin/promote-by-email/:email", asyncHandler(async (req, res) => {
   
   res.json({ success: true, user, message: `User ${email} promoted to admin` });
 }));
-//router.use(geoMiddleware); // Apply geolocation middleware globally
-//router.use(createRateLimiter); // Apply rate limiting globally (can be overridden in specific routes)
+
+router.use("/labeller",protectRoute,checkisBlocked,labellerRouter);
 router.use("/marketplace",protectRoute,checkisBlocked,authorize("admin","buyer"),marketplaceRouter)
 router.use("/review",protectRoute,checkisBlocked,reviewRouter)
 router.use("/datasets",datasetRouter);
@@ -46,4 +47,5 @@ router.use("/reviewer",protectRoute,checkisBlocked,reviewerRouter);
 router.use("/analytics",protectRoute,checkisBlocked,analyticsRouter);
 router.use("/onboarding",protectRoute,checkisBlocked,onboardinRouter);
 router.use('/tasks',taskRouter)
+router.use('/notifications', notificationRouter);
 export default router;

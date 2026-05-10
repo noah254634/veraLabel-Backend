@@ -1,12 +1,14 @@
 import express from 'express';
 import { labellerController } from './labeller.controller.js';
-import { auth } from '../../middlewares/auth.middleware.js';
-import { authorization } from '../../middlewares/authorization.middleware.js';
+import authorize from '../../middlewares/authorization.middleware.js';
+import { protectRoute } from '../../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-// ===== LABELLER SELF-ENDPOINTS (auth required) =====
-router.use(auth);
+// All labeller endpoints require auth
+router.use(protectRoute);
+
+
 
 // Profile
 router.post('/profile', labellerController.createProfile);
@@ -24,8 +26,8 @@ router.get('/performance', labellerController.getPerformance);
 router.get('/tier', labellerController.getTier);
 router.get('/stats', labellerController.getStats);
 
-// ===== ADMIN ENDPOINTS (admin only) =====
-router.use(authorization(['admin', 'superadmin']));
+// Admin endpoints
+router.use(authorize('admin', 'superadmin'));
 
 router.get('/top-performers', labellerController.getTopLabellersByPerformance);
 router.get('/by-tier/:tier', labellerController.getLabellersByTier);

@@ -21,13 +21,12 @@ export const authService = {
     return user;
   },
   loginUser: async ({ email, password }) => {
-    logger.info(`Login attempt for user: ${email}`);
     if (!email || !password) throw new AppError("All fields are required", 400);
     const user = await UserVera.findOne({ email }).select("+password");
     if (!user) throw new AppError("Invalid credentials", 401);
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) throw new AppError("Invalid credentials", 401);
-    //if(!user.isVerified) throw new AppError("Email not verified. Please verify your email before logging in.", 401);
+
     return user;
   },
   refreshAccessToken: async (refreshToken) => {
@@ -72,7 +71,7 @@ export const authService = {
     if (!email) throw new AppError("Email is required", 400);
     const user = await UserVera.findOne({ email });
     if (!user) throw new AppError("Email not found", 404);
-    //call the mailservice to send the reset password email
+
     logger.info(`Initiating forgot password process for ${email}`);
     const result = await mailService.sendResetPasswordEmail(user);
     return result;

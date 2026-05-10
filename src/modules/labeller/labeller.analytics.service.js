@@ -1,4 +1,4 @@
-import Labeller from '../labeller.model.js';
+import Labeller from './labeller.model.js';
 
 export const labellerAnalyticsService = {
   getTotalLabellersCount: async () => {
@@ -42,7 +42,7 @@ export const labellerAnalyticsService = {
           avgCompletionRate: { $avg: '$performance.completionRate' },
           avgApprovalRate: { $avg: '$performance.approvalRate' },
           avgReliabilityScore: { $avg: '$performance.reliabilityScore' },
-          medianEarnings: { $avg: '$earnings.totalEarned' }
+          avgEarnings: { $avg: '$earnings.totalEarned' }
         }
       }
     ]);

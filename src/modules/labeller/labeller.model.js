@@ -6,11 +6,10 @@ const labellerSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'UserVera',
       required: true,
-      unique: true,
-      index: true
+      unique: true
     },
 
-    // PROFILING
+
     tier: {
       type: String,
       enum: ['Trainee', 'Bronze', 'Silver', 'Gold'],
@@ -40,13 +39,13 @@ const labellerSchema = new mongoose.Schema(
 
     expertise: {
       skills: [String],
-      annotationTypes: [String], // ["image", "video", "text", "audio", "code", "rfhf"]
+      annotationTypes: [String],
       toolsUsed: [String],
       yearsOfExperience: Number,
       description: String
     },
 
-    // PERFORMANCE TRACKING
+
     performance: {
       totalTasksAssigned: {
         type: Number,
@@ -86,7 +85,7 @@ const labellerSchema = new mongoose.Schema(
       }
     },
 
-    // EARNINGS & WALLET
+
     earnings: {
       totalEarned: {
         type: Number,
@@ -107,7 +106,7 @@ const labellerSchema = new mongoose.Schema(
       }
     },
 
-    // TASK QUEUE
+
     currentAssignedTasks: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -131,7 +130,7 @@ const labellerSchema = new mongoose.Schema(
       }
     ],
 
-    // TRAINING & CERTIFICATION
+
     training: {
       completedTiers: [String],
       currentTrainingTier: String,
@@ -150,7 +149,7 @@ const labellerSchema = new mongoose.Schema(
       ]
     },
 
-    // STATUS & ACTIVITY
+
     status: {
       type: String,
       enum: ['active', 'inactive', 'suspended', 'banned'],
@@ -170,7 +169,7 @@ const labellerSchema = new mongoose.Schema(
       }
     },
 
-    // RATINGS & FEEDBACK
+
     reviews: [
       {
         reviewer: {
@@ -197,7 +196,7 @@ const labellerSchema = new mongoose.Schema(
       max: 5
     },
 
-    // PREFERENCES
+
     preferences: {
       preferredTaskTypes: [String],
       maxConcurrentTasks: {

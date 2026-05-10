@@ -1,12 +1,11 @@
 import Task from "./task.model.js";
 import UserVera from "../users/user.model.js";
 import Dataset from "../datasets/dataset.model.js";
+import Invoice from "../datasets/invoice.model.js";
 import Labeller from "../labeller/labeller.model.js";
+import { r2ContentFetcher } from "./r2.contentFetcher.js";
 import mongoose from "mongoose";
 import { invoiceService } from "../../helpers/priceCalculator.js";
-import logger from "../../config/logger.js";
-
-// ===== TASK-SPECIFIC HELPERS (normalization only) =====
 
 const normalizeTaskType = (task = {}) => {
   try {
@@ -66,39 +65,62 @@ const updateDatasetRecordsAndPrice = async ({ datasetId, datasetRef }) => {
       throw new Error('datasetId and datasetRef are required');
     }
 
+    // Count tasks belonging to this dataset ID
     const totalRows = await Task.countDocuments({
-      r2_datasetUrl: { $in: [datasetRef, datasetId] },
+      $or: [
+        { datasetId: datasetId },
+        { r2_datasetUrl: datasetRef }
+      ]
     });
     
-    // Use invoice service to get proper pricing
-    const invoiceTaskType = normalizeTaskTypeForInvoice('rlhf'); // Default tier, actual type comes from tasks
-    let calculatedPrice = 0;
+
+    let taskTypeForPricing = 'text';
+    const sampleTask = await Task.findOne({ datasetId: datasetId }).select('taskType').lean();
+    if (sampleTask) {
+      taskTypeForPricing = normalizeTaskTypeForInvoice(sampleTask.taskType);
+    }
     
+    let calculatedPrice = 0;
     try {
-      const invoice = await invoiceService.generateInvoice(invoiceTaskType, totalRows);
+      const invoice = await invoiceService.generateInvoice(taskTypeForPricing, totalRows);
       calculatedPrice = invoice.totalCost;
     } catch (invoiceError) {
-      logger.warn('Failed to calculate price from invoiceService', {
+      logger.error('Critical failure in price calculation via invoiceService', {
         error: invoiceError.message,
+        taskType: taskTypeForPricing,
         totalRows,
       });
-      // Fallback to simple tier pricing if invoice fails
-      if (totalRows <= 100) calculatedPrice = 10;
-      else if (totalRows <= 1000) calculatedPrice = 25;
-      else if (totalRows <= 10000) calculatedPrice = 100;
-      else if (totalRows <= 50000) calculatedPrice = 400;
-      else calculatedPrice = 800;
+      throw new Error(`Pricing calculation failed: ${invoiceError.message}`);
     }
 
     const update = {
       "metadata.numRecords": totalRows,
       price: calculatedPrice,
+      status: "approved"
     };
 
     const isObjectId = mongoose.Types.ObjectId.isValid(datasetId);
     const updated = isObjectId
-      ? await Dataset.findByIdAndUpdate(datasetId, update, { new: true })
-      : await Dataset.findOneAndUpdate({ name: datasetId }, update, { new: true });
+      ? await Dataset.findOneAndUpdate(
+          { _id: datasetId, status: { $ne: "approved" } }, // Only update if not already approved
+          update, 
+          { new: true }
+        )
+      : await Dataset.findOneAndUpdate(
+          { name: datasetId, status: { $ne: "approved" } }, 
+          update, 
+          { new: true }
+        );
+
+    if (updated) {
+      // Note: Status update to awaiting_payment will happen in createTask when invoice is generated
+      logger.info('Dataset marked as approved and ready for invoicing', {
+        datasetId: updated._id
+      });
+    }
+
+    // If it was already approved, just fetch it to return the current data
+    const finalDataset = updated || (isObjectId ? await Dataset.findById(datasetId) : await Dataset.findOne({ name: datasetId }));
 
     logger.info('Dataset records and price updated', {
       datasetId,
@@ -117,9 +139,6 @@ const updateDatasetRecordsAndPrice = async ({ datasetId, datasetRef }) => {
     throw error;
   }
 };
-
-// ===== SERVICE EXPORT =====
-
 export const taskService = {
   createTask: async ({ datasetId, projectId, tasks, isLastBatch }) => {
     try {
@@ -153,13 +172,10 @@ export const taskService = {
         if (!r2Ref) {
           throw new Error(`Invalid task payload at index ${index}: missing 'key' or 'r2_url'`);
         }
-
-        // SANITIZED: Store only attributes and references, NOT raw content
-        // contentPreview and other raw data are STRIPPED
         return {
-          // References to R2 (use these to fetch content)
           r2_datasetUrl: datasetRef,
           r2_input_taskRef: r2Ref,
+          datasetId: datasetId, // Linked dataset ID for tracking
           
           // Metadata attributes
           taskType: normalizeTaskType(task),
@@ -173,22 +189,15 @@ export const taskService = {
           
           // Internal tracking
           _uniqueKey: task.taskId || r2Ref,
-          
-          // NOTE: contentPreview, raw content, and other large data are NOT stored
-          // Use r2_input_taskRef with R2 client to fetch actual content when needed
         };
       });
 
       logger.debug('Task entries prepared', {
         datasetRef,
-        entryCount: taskEntries.length,
         taskTypes: [...new Set(taskEntries.map(t => t.taskType))],
       });
-
-      // Comprehensive duplicate detection - check both taskId and R2 reference
-      // Only check non-null taskIds to avoid null collisions
       const refsToCheck = taskEntries.map(t => t.r2_input_taskRef).filter(Boolean);
-      const taskIdsToCheck = taskEntries.map(t => t.taskId).filter(Boolean); // Only non-null
+      const taskIdsToCheck = taskEntries.map(t => t.taskId).filter(Boolean);
       
       const orConditions = [];
       if (taskIdsToCheck.length > 0) {
@@ -209,7 +218,6 @@ export const taskService = {
         ).lean();
       }
 
-      // Build a set of existing unique keys (taskId or r2_input_taskRef)
       const existingUniqueKeys = new Set();
       existingTasks.forEach(task => {
         if (task.taskId) existingUniqueKeys.add(task.taskId);
@@ -225,7 +233,6 @@ export const taskService = {
         });
       }
 
-      // Filter out tasks that already exist (check both taskId and R2 reference)
       const newTaskEntries = taskEntries.filter(task => {
         const hasMatchingTaskId = task.taskId && existingUniqueKeys.has(task.taskId);
         const hasMatchingRef = task.r2_input_taskRef && existingUniqueKeys.has(task.r2_input_taskRef);
@@ -233,6 +240,9 @@ export const taskService = {
         return !(hasMatchingTaskId || hasMatchingRef);
       });
 
+      let insertedCount = 0;
+      let failedCount = 0;
+      let duplicateCount = taskEntries.length - deduplicatedEntries.length;
       // Filter out duplicates within the current batch
       const seenUniqueKeys = new Set();
       const deduplicatedEntries = newTaskEntries.filter(task => {
@@ -243,7 +253,7 @@ export const taskService = {
             ref: key,
             taskId: task.taskId,
           });
-          return false; // Skip this duplicate
+          return false;
         }
         seenUniqueKeys.add(key);
         return true;
@@ -255,72 +265,102 @@ export const taskService = {
         afterBatchDedup: deduplicatedEntries.length,
         duplicatesSkipped: taskEntries.length - deduplicatedEntries.length,
       });
-
-      // Only insert deduplicated tasks
-      let insertedCount = 0;
-      let duplicateCount = taskEntries.length - deduplicatedEntries.length;
-      
       if (deduplicatedEntries.length > 0) {
         // Remove internal _uniqueKey field before saving to DB
         const tasksToInsert = deduplicatedEntries.map(({ _uniqueKey, ...task }) => task);
-        
-        const insertResult = await Task.insertMany(tasksToInsert);
-        insertedCount = insertResult.length;
-        logger.info('Tasks inserted into database', {
-          datasetRef,
-          insertedCount,
-          duplicateCount,
-        });
+
+        try {
+          // Use unordered inserts: { ordered: false } allows valid tasks to be inserted
+          // even if some fail validation. This ensures partial success instead of total failure.
+          const insertResult = await Task.insertMany(tasksToInsert, { ordered: false });
+          insertedCount = insertResult.length;
+          logger.info('Tasks inserted into database', {
+            datasetRef,
+            insertedCount,
+            duplicateCount,
+            failedCount: tasksToInsert.length - insertedCount,
+          });
+        } catch (insertError) {
+
+          const isDuplicateError = insertError.code === 11000 ||
+                                  (insertError.writeErrors && insertError.writeErrors.some(e => e.code === 11000));
+
+          if (insertError.insertedIds && insertError.insertedIds.length > 0) {
+            insertedCount = insertError.insertedIds.length;
+            failedCount = tasksToInsert.length - insertedCount;
+
+            logger.warn('Partial insertion success (some duplicates or failures)', {
+              datasetRef,
+              insertedCount,
+              failedCount,
+              isDuplicateError,
+            });
+          } else {
+            failedCount = tasksToInsert.length;
+            throw insertError;
+          }
+        }
       } else {
-        logger.warn('No new tasks to insert after deduplication', {
+        logger.info('No new tasks to insert after deduplication', {
           datasetRef,
           skipped: duplicateCount,
         });
       }
 
-      let rowsUpdated = false;
-      let calculatedPrice = null;
+      let totalTasksInDataset;
+      let invoice;      if (isLastBatch) {
+        // Count total tasks for this dataset (including duplicates already in DB)
+        totalTasksInDataset = await Task.countDocuments({
+          $or: [{ datasetId }, { r2_datasetUrl: datasetRef }]
+        });
 
-      if (isLastBatch) {
-        const updateResult = await updateDatasetRecordsAndPrice({ datasetId, datasetRef });
-        rowsUpdated = updateResult.rowsUpdated;
-        calculatedPrice = updateResult.calculatedPrice;
-        logger.info('Dataset finalized after last batch', {
-          datasetRef,
-          totalRows: updateResult.totalRows,
-          calculatedPrice,
-        });
-      }
+        const invoiceTaskType = normalizeTaskTypeForInvoice(taskEntries[0]?.taskType);
+        try {
+          invoice = await invoiceService.generateInvoice(invoiceTaskType, totalTasksInDataset);          await Dataset.findByIdAndUpdate(
+            datasetId,
+            { 
+              status: "awaiting_payment",
+              price: invoice.totalCost,
+              rows: totalTasksInDataset,
+              "metadata.numRecords": totalTasksInDataset
+            }
+          );          await Invoice.create({
+            datasetId: datasetId,
+            status: "pending",
+            taskType: invoiceTaskType,
+            rowsCount: totalTasksInDataset,
+            ...invoice
+          });
 
-      // Count actual unique tasks (including previously existing ones) 
-      const totalTasksInDataset = await Task.countDocuments({ r2_datasetUrl: datasetRef });
-      const invoiceTaskType = normalizeTaskTypeForInvoice(taskEntries[0]?.taskType);
-      
-      let invoice = null;
-      try {
-        // Generate invoice for NEWLY inserted tasks only, not the entire dataset
-        invoice = await invoiceService.generateInvoice(invoiceTaskType, insertedCount);
-        logger.debug('Invoice generated', { 
-          invoiceTaskType, 
-          newlyInserted: insertedCount,
-          totalInDataset: totalTasksInDataset 
-        });
-      } catch (invoiceError) {
-        logger.warn('Failed to generate invoice', {
-          error: invoiceError.message,
-          invoiceTaskType,
-          newlyInserted: insertedCount,
-        });
+          logger.info('Invoice generated and stored', {
+            invoiceTaskType,
+            totalTasks: totalTasksInDataset,
+            totalCost: invoice.totalCost
+          });
+        } catch (invoiceError) {
+          logger.error('Failed to generate final invoice', {
+            error: invoiceError.message,
+            invoiceTaskType,
+            totalTasks: totalTasksInDataset,
+          });
+          throw invoiceError;
+        }
       }
 
       const response = {
-        invoice,
         message: "Tasks created successfully",
         count: insertedCount,
         duplicatesSkipped: duplicateCount,
+        failedItems: failedCount,
         totalTasksInDataset,
-        rowsUpdated,
+        success: failedCount === 0,
       };
+
+      // Only include invoice if it was generated (last batch)
+      if (invoice) {
+        response.invoice = invoice;
+        response.message = "Tasks completed. Invoice generated and ready for payment.";
+      }
 
       logger.info('Task creation completed', {
         datasetId,
@@ -342,14 +382,11 @@ export const taskService = {
   },
   getTasks: async ({ page = 1, limit = 50, status, split, taskType }) => {
     try {
-      // Validate pagination parameters with defensive checks
+
       const validPage = Math.max(1, Number.parseInt(page, 10) || 1);
       const validLimit = Math.max(1, Math.min(100, Number.parseInt(limit, 10) || 50));
 
-      const filters = {};
-
-      // Build filters with normalization
-      if (status && typeof status === 'string') {
+      const filters = {};      if (status && typeof status === 'string') {
         const normalizedStatus = status.trim().toLowerCase();
         if (['pending', 'assigned', 'completed', 'rejected', 'verified'].includes(normalizedStatus)) {
           filters.status = normalizedStatus;
@@ -422,10 +459,11 @@ export const taskService = {
     try {
       if (!id || typeof id !== 'string') {
         throw new Error('Valid task ID is required');
-      }
-
-      // Validate MongoDB ObjectId format
-      if (!mongoose.Types.ObjectId.isValid(id)) {
+      }      const existingUniqueKeys = new Set();
+      existingTasks.forEach(task => {
+        if (task.taskId) existingUniqueKeys.add(task.taskId);
+        if (task.r2_input_taskRef) existingUniqueKeys.add(task.r2_input_taskRef);
+      });      if (!mongoose.Types.ObjectId.isValid(id)) {
         throw new Error(`Invalid task ID format: ${id}`);
       }
 
@@ -437,9 +475,17 @@ export const taskService = {
         logger.warn('Task not found', { taskId: id });
         throw new Error(`Task with ID ${id} not found`);
       }
+      const taskR2Url=task.r2_input_taskRef;
+      const taskBuffer = await r2ContentFetcher.fetchTaskContent(taskR2Url);      let taskObject;
+      try {
+        taskObject = JSON.parse(taskBuffer.toString('utf-8'));
+      } catch (parseError) {
+        logger.warn('Could not parse task content as JSON, returning raw content', { taskId: id });
+        taskObject = taskBuffer.toString('utf-8');
+      }
 
       logger.debug('Task fetched successfully', { taskId: id, status: task.status });
-      return task;
+      return { task, taskObject };
     } catch (error) {
       logger.error('Error fetching task by ID', {
         error: error.message,
@@ -477,10 +523,7 @@ export const taskService = {
       task.startedAt = null;
       task.completedAt = null;
 
-      await task.save();
-
-      // If task was assigned to someone, remove it from their Labeller profile
-      if (previousAssignee) {
+      await task.save();      if (previousAssignee) {
         await Labeller.findOneAndUpdate(
           { userId: previousAssignee },
           {
@@ -525,10 +568,7 @@ export const taskService = {
       task.assignedTo = userId;
       task.assignedAt = new Date();
       task.status = "in_progress";
-      await task.save();
-
-      // Update Labeller profile - track assignment and update metrics
-      const labeller = await Labeller.findOneAndUpdate(
+      await task.save();      const labeller = await Labeller.findOneAndUpdate(
         { userId },
         {
           $addToSet: { currentAssignedTasks: task._id },
@@ -566,26 +606,27 @@ export const taskService = {
   submitTask: async (taskId, userId) => {
     if (!taskId) throw new Error("Task id is required");
     if (!userId) throw new Error("User id is required");
-    //verification logic will go here by calling the fastAPI Microservices to do the verification and sent the response for verification
+
   },
   verifyTask: async (taskId, userId) => {
-    if (!taskId) throw new Error("Task id is required");
-    if (!userId) throw new Error("User id is required");
+    if (!taskId || !userId) throw new Error("Task ID and User ID are required");
+    
     const task = await Task.findById(taskId);
     if (!task) throw new Error("Task not found");
-    const user = await UserVera.find({
+    
+    const user = await UserVera.findOne({
       _id: userId,
-      role: "admin" || "reviewer",
+      role: { $in: ["admin", "reviewer"] }
     });
-    if (!user)
-      throw new Error(
-        "User not found or not authorized to perform this action",
-      );
+    
+    if (!user) throw new Error("User not found or not authorized (must be admin/reviewer)");
     if (task.isVerified) throw new Error("Task already verified");
+    
     task.isVerified = true;
     task.verifiedBy = userId;
     task.status = "verified";
     await task.save();
+    
     return { message: "Task verified successfully", task };
   },
   rejectTask: async (taskId, reason) => {
@@ -602,13 +643,7 @@ export const taskService = {
       task.status = "rejected";
       task.rejectionReason = reason;
       task.verificationScore = 0;
-      await task.save();
-
-      // Return task to pool (which removes it from labeller's currentAssignedTasks)
-      await taskService.returnTaskToPool(taskId);
-
-      // Update labeller's rejection count
-      if (labellerId) {
+      await task.save();      await taskService.returnTaskToPool(taskId);      if (labellerId) {
         await Labeller.findOneAndUpdate(
           { userId: labellerId },
           {
@@ -634,17 +669,20 @@ export const taskService = {
   deleteTaskBatch: async () => {
 
   },
-  reviewTask: async (taskId, userId,score) => {
+  reviewTask: async (taskId, userId, score) => {
     const task = await Task.findById(taskId);
-    if(!task) throw new Error("Task not found");
+    if (!task) throw new Error("Task not found");
+    
     const user = await UserVera.findById(userId);
-    if(!user) throw new Error("User not found");
-    if(task.isVerified) throw new Error("Task already verified");
-    task.isVerified=true;
-    task.verifiedBy=userId;
-    task.status="verified";
-    task.verificationScore=score;
+    if (!user) throw new Error("User not found");
+    if (task.isVerified) throw new Error("Task already verified");
+    
+    task.isVerified = true;
+    task.verifiedBy = userId;
+    task.status = "verified";
+    task.verificationScore = score;
     await task.save();
+    
     return { message: "Task verified successfully", task };
   },
   revokeTask: async (taskId) => {

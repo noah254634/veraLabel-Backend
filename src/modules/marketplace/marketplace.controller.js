@@ -14,10 +14,10 @@ export const marketplaceController = {
 
   getBuyerRequests: async (req, res) => {
     try {
-      const buyerDatasetOrders = await marketplaceService.getdatasetOrders(
+      const { buyerDatasetOrders, stats } = await marketplaceService.getdatasetOrders(
         req.user._id,
       );
-      return res.status(200).json({ buyerDatasetOrders });
+      return res.status(200).json({ buyerDatasetOrders, stats });
     }catch(err){
       logger.error(err.message);
       return res.status(500).json({ message: err.message });

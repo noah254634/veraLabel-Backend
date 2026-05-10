@@ -1,81 +1,177 @@
 import mongoose from "mongoose";
 import Dataset from "../datasets/dataset.model.js";
-import DatasetRequest from "./request.model.js";
+import Invoice from "../datasets/invoice.model.js";
 import UserVera from "../users/user.model.js";
 import { PaymentService } from "../payments/services/payment.service.js";
 import Order from "./order.model.js";
 export const marketplaceService = {
   getOrders: async (buyerId) => {
-    const orders = await Order.aggregate([
-      {
-        $match: {
-          buyerId: buyerId,
-          status: "approved",
+    try {
+      // Convert buyerId to ObjectId for proper MongoDB matching
+      const buyerObjectId = new mongoose.Types.ObjectId(buyerId);
+
+      const orders = await Order.aggregate([
+        {
+          $match: {
+            buyerId: buyerObjectId,
+            status: "approved",
+          },
         },
-      },
-      {
-        $sort: {
-          createdAt: -1,
+        {
+          $sort: {
+            createdAt: -1,
+          },
         },
-      },
-      {
-        $limit: 20,
-      },
-      /*{
-        $lookup: {
-          from: "datasets",
-          localField: "datasetId",
-          foreignField: "_id",
-          as: "dataset",
+        {
+          $limit: 20,
         },
-      },*/
-      {
-        $project: {
-          _id: 0,
+        {
+          $project: {
+            _id: 1,
+            reference: 1,
+            buyerId: 1,
+            datasetId: 1,
+            status: 1,
+            totalPrice: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          },
         },
-      },
-    ]);
-    return orders;
+      ]);
+      return orders;
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+      throw new Error(`Failed to fetch orders: ${error.message}`);
+    }
   },
   getdatasetOrders: async (buyerId) => {
-    const userExists = await UserVera.findOne({ _id: buyerId, role: "buyer" });
+    const userExists = await UserVera.findOne({ _id: buyerId });
     if (!userExists) throw new Error("Unauthorized access or user not a buyer");
     
-    const datasetOrders = await DatasetRequest.aggregate([
-      {
-        $match: {
-          buyerId: buyerId,
-        },
-      },
-      { $sort: { createdAt: -1 } }, // newest first
-      { $limit: 8 },
-      {
-        $project: {
-          _id: 1,
-          datasetId: 1,
-          createdAt: 1,
-          price: 1,
-          volume: 1,
-          format: 1,
-          domain: 1,
-          description: 1,
-          budget: 1,
-          sourceLink: 1,
-          fileUrl: 1,
-          status: 1,
-          timeline: 1,
-          qualityMetrics: 1,
-          isPaid: 1,
-          itemsCompleted: 1,
-          assignedLabelerId: 1,
-          downloadUrl: 1,
-          reportReason: 1,
-          canBeCancelled: 1,
-        },
-      },
+    const buyerObjectId = new mongoose.Types.ObjectId(buyerId);
+
+
+    // 1. Fetch all possible data assets for this buyer
+    const [customDatasets, allPurchases, marketplaceDatasets] = await Promise.all([
+      Dataset.find({ type: 'custom', buyerId: buyerObjectId }).sort({ createdAt: -1 }).lean(),
+      Order.find({ buyerId: buyerObjectId }).sort({ createdAt: -1 }).lean(),
+      Dataset.find({ type: 'marketplace', datasetLabeler: buyerObjectId }).sort({ createdAt: -1 }).lean()
     ]);
 
-    return datasetOrders;
+    console.log(`[Sync] Found ${customDatasets.length} custom datasets, ${allPurchases.length} purchases, and ${marketplaceDatasets.length} marketplace datasets`);
+
+    // 2. Build a map of already linked Dataset IDs to avoid duplicates
+    const linkedDatasetIds = new Set();
+    allPurchases.forEach(p => { if (p.datasetId) linkedDatasetIds.add(p.datasetId.toString()); });
+
+    // 3. Normalize Custom Datasets
+    const normalizedCustom = customDatasets.map(d => ({ ...d, entryType: 'custom' }));
+
+    // 4. Normalize Purchases
+    const rawPurchases = await Promise.all(allPurchases.map(async (p) => {
+      const dataset = await Dataset.findById(p.datasetId).lean();
+      if (!dataset || dataset.type === 'custom') return null;
+      return {
+        _id: p._id,
+        datasetId: p.datasetId,
+        createdAt: p.createdAt,
+        domain: dataset?.datasetType || "Marketplace",
+        format: dataset?.datasetFormat || "N/A",
+        description: dataset?.description || "Purchased Marketplace Asset",
+        volume: dataset?.metadata?.numRecords || "---",
+        budget: `$${p.totalPrice || 0}`,
+        status: p.status === 'approved' ? "done" : "pending",
+        entryType: 'purchase',
+        isPaid: true,
+        itemsCompleted: dataset?.metadata?.numRecords || 0,
+        actualRows: dataset?.metadata?.numRecords || 0,
+        processingProgress: 100,
+        timeline: "Instant",
+      };
+    }));
+    const normalizedPurchases = rawPurchases.filter(Boolean);
+
+    // 5. Normalize Marketplace Datasets
+    const normalizedMarketplace = marketplaceDatasets
+      .filter(d => !linkedDatasetIds.has(d._id.toString()))
+      .map(d => ({
+        _id: d._id,
+        datasetId: d._id,
+        createdAt: d.createdAt,
+        domain: d.datasetType || "Marketplace",
+        format: d.datasetFormat || "RAW",
+        description: d.description || "Marketplace Dataset",
+        volume: d.metadata?.numRecords || "---",
+        budget: `$${d.price || 0}`,
+        status: d.status === 'approved' ? "done" : "processing",
+        entryType: 'marketplace',
+        isPaid: true,
+        itemsCompleted: d.metadata?.numRecords || 0,
+        actualRows: d.metadata?.numRecords || 0,
+        processingProgress: d.status === 'approved' ? 100 : 0,
+        timeline: "N/A",
+      }));
+
+    // 6. Combine and Sort everything
+    const allDataAssets = [...normalizedCustom, ...normalizedPurchases, ...normalizedMarketplace].sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
+    // 7. Calculate stats across EVERYTHING
+    const stats = allDataAssets.reduce((acc, item) => {
+      const budgetValue = parseFloat(String(item.budget || "0").replace(/[^0-9.]/g, "")) || 0;
+      
+      acc.totalSpent += budgetValue;
+      if (item.status === "done") {
+        acc.activeAssets += 1;
+      } else if (["pending", "processing"].includes(item.status)) {
+        acc.pendingSync += 1;
+      }
+      return acc;
+    }, { totalSpent: 0, activeAssets: 0, pendingSync: 0 });
+
+    // 8. Prepare the full active list for the UI
+    const recentOrders = await Promise.all(allDataAssets.map(async (item) => {
+      if (item.entryType !== 'custom') return item;
+
+      // Special tracking for active requests
+      let actualRows = item.rows || 0;
+      let processingProgress = 0;
+      let invoice = null;
+
+      const dataset = await Dataset.findById(item._id).select('metadata.numRecords status').lean();
+      if (dataset) {
+        actualRows = dataset.metadata?.numRecords || actualRows;
+
+        const tasksCreated = await mongoose.model('Task').countDocuments({ 
+          $or: [{ datasetId: item._id }, { r2_datasetUrl: `projects/${item.buyerId?.toString()}/${item._id.toString()}` }]
+        });
+        
+        const volumeTarget = parseInt(item.volume) || 1;
+        processingProgress = ['approved', 'awaiting_payment'].includes(dataset.status) ? 100 : Math.min(Math.round((tasksCreated / volumeTarget) * 100), 100);
+      }
+
+      if (['awaiting_payment', 'pending'].includes(item.status)) {
+        invoice = await Invoice.findOne({ datasetId: item._id }).lean();
+      }
+
+      return {
+        ...item,
+        actualRows,
+        processingProgress,
+        invoice
+      };
+    }));
+
+    return { 
+      buyerDatasetOrders: recentOrders, 
+      stats 
+    };
+
+    return { 
+      buyerDatasetOrders: recentOrders, 
+      stats 
+    };
   },
   unpublishDataset: async (id) => {
     if (!id) throw new Error("Id not found");
@@ -122,29 +218,46 @@ export const marketplaceService = {
     return datasets;
   },
   
-  cancelPayment: async (orderId, buyerId) => {
-    const order = await DatasetRequest.findOne({ _id: orderId, buyerId });
-    if (!order) throw new Error("Order not found or unauthorized");
-    if (!order.canBeCancelled) throw new Error("This order cannot be cancelled");
-    if (order.status !== "pending") throw new Error("Can only cancel pending orders");
-    
-    const updatedOrder = await DatasetRequest.findByIdAndUpdate(
-      orderId,
-      { status: "failed", canBeCancelled: false },
+  cancelPayment: async (datasetId, buyerId) => {
+    const dataset = await Dataset.findOne({ _id: datasetId, buyerId, type: 'custom' });
+    if (!dataset) throw new Error("Dataset not found or unauthorized");
+    if (!dataset.canBeCancelled) throw new Error("This dataset cannot be cancelled");
+    if (dataset.status !== "pending") throw new Error("Can only cancel pending datasets");
+
+    const updatedDataset = await Dataset.findByIdAndUpdate(
+      datasetId,
+      { status: "cancelled", canBeCancelled: false },
       { new: true }
     );
-    return updatedOrder;
+    return updatedDataset;
   },
 
-  reportIssue: async (orderId, buyerId, reason) => {
-    const order = await DatasetRequest.findOne({ _id: orderId, buyerId });
-    if (!order) throw new Error("Order not found or unauthorized");
-    
-    const updatedOrder = await DatasetRequest.findByIdAndUpdate(
-      orderId,
+  reportIssue: async (datasetId, buyerId, reason) => {
+    const dataset = await Dataset.findOne({ _id: datasetId, buyerId, type: 'custom' });
+    if (!dataset) throw new Error("Dataset not found or unauthorized");
+
+    const updatedDataset = await Dataset.findByIdAndUpdate(
+      datasetId,
       { reportReason: reason },
       { new: true }
     );
-    return updatedOrder;
+    return updatedDataset;
+  },
+
+  getInvoice: async (datasetId, buyerId) => {
+    const dataset = await Dataset.findOne({ _id: datasetId, buyerId, type: 'custom' });
+    if (!dataset) throw new Error("Dataset not found or unauthorized");
+
+    const invoice = await Invoice.findOne({ datasetId });
+    if (!invoice) throw new Error("Invoice not yet generated. Please ensure all tasks have been registered.");
+
+    return {
+      datasetId: dataset._id,
+      invoice: invoice,
+      status: dataset.status,
+      domain: dataset.domain,
+      volume: dataset.volume,
+      createdAt: dataset.createdAt,
+    };
   },
 };

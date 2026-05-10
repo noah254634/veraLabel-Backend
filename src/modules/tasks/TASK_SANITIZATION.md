@@ -89,7 +89,6 @@ const payload = {
   r2_url: "projects/proj1/dataset1/task-1.json",  // ✅ Reference
   split: "train",
   taskType: "text"
-  // contentPreview: "..." ❌ Don't send this
 };
 
 await taskService.createTask({ datasetId, projectId, tasks: [payload] });
@@ -108,11 +107,9 @@ const url = await r2ContentFetcher.getPresignedUrl(task.r2_input_taskRef);
 ```
 
 ### 3. **Storing Results**
-```javascript
-// Don't store result content directly
-task.result = labeledData; // ❌ Don't do this
 
-// Instead: Upload to R2, store reference
+
+// Upload to R2, store reference
 const resultRef = `results/${task.taskId}.json`;
 await r2.putObject(resultRef, JSON.stringify(labeledData));
 
@@ -158,11 +155,11 @@ const existingTasks = await Task.find({
 
 ## Frontend Changes Needed
 
-### Before (❌)
+### Before 
 ```typescript
 const tasks = csvData.map((row, i) => ({
   taskId: `${i}`,
-  contentPreview: row.text, // ❌ Don't send raw content
+  contentPreview: row.text, // Don't send raw content
   split: 'train'
 }));
 

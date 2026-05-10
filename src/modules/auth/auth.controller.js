@@ -17,7 +17,6 @@ export const authController={
   }),
   
 signup: asyncHandler(async (req, res) => {
-    logger.info(req.body)
     const dto = validateSignup(req.body);
     logger.info({ email: dto.email }, "Signup attempt");
     const user = await authService.createUser(dto);
@@ -34,7 +33,7 @@ signup: asyncHandler(async (req, res) => {
 
 login: asyncHandler(async (req, res) => {
     const dto = validateLogin(req.body);
-    logger.info({ email: dto.email }, "Login attempt");
+    logger.debug({ email: dto.email }, "Login attempt");
     const user=await authService.loginUser(dto);
     if (!user) throw new AppError("Invalid credentials", 401);
     
@@ -45,7 +44,6 @@ login: asyncHandler(async (req, res) => {
     const accessToken=generateAccessToken(user);
     const refreshToken=generateRefreshToken(user);
     setAuthCookies(res,accessToken,refreshToken);
-    logger.info(`User ${user.email} logged in successfully`);
     return res.status(200).json({
         message:"User logged in successfully",
         user: userResponse

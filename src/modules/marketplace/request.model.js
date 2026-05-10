@@ -19,7 +19,7 @@ const DatasetSchema=new Schema({
     required:true
   },
   budget:{
-    type:String,
+    type:Number,
     required:true
   },
   format:{
@@ -43,12 +43,44 @@ const DatasetSchema=new Schema({
   },
   status: {
     type: String,
-    enum: ["pending", "processing", "done","failed"],
+    enum: ["pending", "awaiting_payment", "in_progress", "completed", "registration_failed", "cancelled"],
     default: "pending"
+  },
+  paidAt: {
+    type: Date
+  },
+  startedAt: {
+    type: Date
+  },
+  completedAt: {
+    type: Date
+  },
+  invoice: {
+    taskType: String,
+    description: String,
+    rowsCount: Number,
+    currency: String,
+    tier: String,
+    unitRate: Number,
+    baseRate: Number,
+    tierMultiplier: Number,
+    breakdown: {
+      items: Number,
+      unitRate: Number,
+      basePrice: Number,
+      discount: Number,
+      discountPercent: Number,
+      engineering: Number,
+      platform: Number,
+      maintenance: Number,
     },
-  isPaid: {
-    type: Boolean,
-    default: false
+    price: Number,
+    basePrice: Number,
+    engineeringCost: Number,
+    platformFee: Number,
+    maintenanceCost: Number,
+    totalCost: Number,
+    calculatedAt: Date,
   },
   itemsCompleted: {
     type: Number,
@@ -67,6 +99,10 @@ const DatasetSchema=new Schema({
   canBeCancelled: {
     type: Boolean,
     default: true
+  },
+  datasetId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Dataset"
   }
 },{
     timestamps:true

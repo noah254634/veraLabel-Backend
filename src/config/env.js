@@ -1,11 +1,11 @@
 import dotenv from "dotenv";
 import path from "path";
 
-// Ensure we target the .env file specifically inside the src folder
+
 const envPath = path.resolve(process.cwd(), "src", ".env");
 dotenv.config({ path: envPath });
 
-// Helper to check if origin is a local network IP (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+
 export const isLocalNetworkOrigin = (origin) => {
     if (!origin) return false;
     
@@ -13,7 +13,7 @@ export const isLocalNetworkOrigin = (origin) => {
         const url = new URL(origin);
         const hostname = url.hostname;
         
-        // Match local network IP ranges
+
         const localNetworkRegex = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/;
         return localNetworkRegex.test(hostname);
     } catch {
@@ -24,7 +24,7 @@ export const isLocalNetworkOrigin = (origin) => {
 const buildEnv = (processEnv = process.env, options = {}) => {
     const { debug = false } = options;
     
-    // Check both plural and singular versions
+
     const allowedOriginsStr = processEnv.ALLOWED_ORIGINS || processEnv.ALLOWED_ORIGIN;
 
     if (!allowedOriginsStr) {
@@ -55,6 +55,9 @@ const buildEnv = (processEnv = process.env, options = {}) => {
         handshake_url: processEnv.HANDSHAKE_URL,
         Internal_Secret: processEnv.INTERNAL_SECRET,
         allowedOrigins: allowedOriginsStr.split(",").map(origin => origin.trim()),
+
+        firebase_service_account_key: processEnv.FIREBASE_SERVICE_ACCOUNT_KEY,
+        firebase_vapid_key: processEnv.FIREBASE_VAPID_KEY,
     };
 };
 

@@ -52,9 +52,10 @@ const taskSchema = new Schema({
     description: 'When the pre-signed URL expires'
   },
 
-  dataset: {
+  datasetId: {
     type: Schema.Types.ObjectId,
-    ref: "Dataset"
+    ref: "Dataset",
+    required: true
   },
 
   // 2. ASSIGNMENT STATE

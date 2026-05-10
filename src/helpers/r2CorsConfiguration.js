@@ -1,5 +1,20 @@
+import { PutBucketCorsCommand, CreateBucketCommand } from "@aws-sdk/client-s3";
+import { r2 } from "../config/r2Upload.js";
+
+import logger from "../config/logger.js";
+
 const ensureCorsConfigured = async () => {
   try {
+    // Environment-based CORS configuration
+    const isDev = process.env.NODE_ENV !== 'production';
+    
+    // For dev, use explicit origins instead of wildcard (R2 may not support "*")
+    const allowedOrigins = isDev 
+      ? ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:5174"]
+      : (process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [process.env.FRONTEND_URL]);
+    
+    const maxAge = isDev ? 3000 : 86400; // 24 hours in production
+    
     const command = new PutBucketCorsCommand({
       Bucket: process.env.R2_BUCKET_NAME,
       CORSConfiguration: {
@@ -7,26 +22,27 @@ const ensureCorsConfigured = async () => {
           {
             AllowedHeaders: ["*"],
             AllowedMethods: ["PUT", "POST", "GET", "HEAD"],
-            AllowedOrigins: ["*"],
+            AllowedOrigins: allowedOrigins,
             ExposeHeaders: ["ETag"],
-            MaxAgeSeconds: 3000,
+            MaxAgeSeconds: maxAge,
           },
         ],
       },
     });
     await r2.send(command);
+    logger.info("R2 CORS configured successfully", { bucket: process.env.R2_BUCKET_NAME, isDev, allowedOrigins });
   } catch (error) {
     if (error.name === 'NoSuchBucket' || error.message?.includes('The specified bucket does not exist')) {
-      console.info(`Bucket '${process.env.R2_BUCKET_NAME}' not found. Attempting to create it...`);
+      logger.info(`R2 Bucket not found. Creating: ${process.env.R2_BUCKET_NAME}`);
       try {
         await r2.send(new CreateBucketCommand({ Bucket: process.env.R2_BUCKET_NAME }));
-        console.info(`Bucket '${process.env.R2_BUCKET_NAME}' created successfully.`);
+        logger.info(`R2 Bucket created: ${process.env.R2_BUCKET_NAME}`);
         await ensureCorsConfigured(); 
       } catch (createError) {
-        console.error("Failed to create R2 bucket:", createError.message);
+        logger.error("Failed to create R2 bucket", { bucket: process.env.R2_BUCKET_NAME, error: createError instanceof Error ? createError.message : String(createError) });
       }
     } else {
-      console.warn("Warning: Failed to configure R2 CORS:", error.message);
+      logger.warn("Failed to configure R2 CORS", { bucket: process.env.R2_BUCKET_NAME, error: error instanceof Error ? error.message : String(error) });
     }
   }
 };

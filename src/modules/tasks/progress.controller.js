@@ -12,7 +12,8 @@ import {
   clearSession, 
   getAllActiveSessions,
   getSystemStats,
-  cleanupExpiredSessions 
+  cleanupExpiredSessions,
+  subscribeToSession 
 } from './progress.service.js';
 import logger from '../../config/logger.js';
 
@@ -180,6 +181,32 @@ export const progressController = {
   streamProgress: async (req, res) => {
     const { projectId, datasetId } = req.params;
     const sinceTimestamp = req.query.since || null;
+    let unsubscribe = null;
+    let keepAliveInterval = null;
+    let closed = false;
+
+    const closeStream = (reason) => {
+      if (closed) {
+        return;
+      }
+
+      closed = true;
+
+      if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+      }
+
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+        unsubscribe = null;
+      }
+
+      if (!res.writableEnded) {
+        res.end();
+      }
+
+      logger.info('Stream closed', { projectId, datasetId, reason });
+    };
 
     try {
       if (!projectId || !datasetId) {
@@ -197,8 +224,16 @@ export const progressController = {
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('Access-Control-Allow-Origin', '*');
 
+      if (typeof res.flushHeaders === 'function') {
+        res.flushHeaders();
+      }
+
       // Send initial connection message
-      res.write('data: {"type": "connected", "message": "Progress stream connected", "timestamp": "' + new Date().toISOString() + '"}\n\n');
+      res.write(`data: ${JSON.stringify({
+        type: 'connected',
+        message: 'Progress stream connected',
+        timestamp: new Date().toISOString(),
+      })}\n\n`);
 
       // Get or create session
       let session = getSession(projectId, datasetId);
@@ -216,43 +251,43 @@ export const progressController = {
         logger.warn('Error sending recent events', { error: error.message, projectId, datasetId });
       }
 
-      // Keep connection open and poll for new events
-      const interval = setInterval(() => {
-        try {
-          const currentSession = getSession(projectId, datasetId);
+      session = getSession(projectId, datasetId);
 
-          if (!currentSession) {
-            // Session expired
-            res.write(`data: {"type": "session_ended", "message": "Session timed out", "timestamp": "${new Date().toISOString()}"}\n\n`);
-            clearInterval(interval);
-            res.end();
-            logger.info('Stream closed: session expired', { projectId, datasetId });
-            return;
-          }
+      if (session && (session.status === 'completed' || session.status === 'failed')) {
+        const summary = getSummary(projectId, datasetId);
+        res.write(`data: ${JSON.stringify({ type: 'session_complete', status: session.status, summary })}\n\n`);
+        closeStream('session already complete');
+        return;
+      }
 
-          if (currentSession.status === 'completed' || currentSession.status === 'failed') {
-            // Send final summary and close
-            const summary = getSummary(projectId, datasetId);
-            res.write(`data: ${JSON.stringify({ type: 'session_complete', status: currentSession.status, summary })}\n\n`);
-            clearInterval(interval);
-            res.end();
-            logger.info('Stream closed: session complete', { projectId, datasetId, status: currentSession.status });
-          }
-        } catch (error) {
-          logger.error('Error in stream polling', { error: error.message, projectId, datasetId });
-          clearInterval(interval);
-          res.end();
+      unsubscribe = subscribeToSession(projectId, datasetId, (event, currentSession) => {
+        if (closed || res.writableEnded) {
+          return;
         }
-      }, 5000); // Poll every 5 seconds
+
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+
+        if (currentSession.status === 'completed' || currentSession.status === 'failed') {
+          const summary = getSummary(projectId, datasetId);
+          res.write(`data: ${JSON.stringify({ type: 'session_complete', status: currentSession.status, summary })}\n\n`);
+          closeStream('session complete');
+        }
+      });
+
+      // Keep the connection alive without polling.
+      keepAliveInterval = setInterval(() => {
+        if (!closed && !res.writableEnded) {
+          res.write(':keep-alive\n\n');
+        }
+      }, 15000);
 
       // Handle client disconnect
       req.on('close', () => {
-        clearInterval(interval);
-        logger.info('Stream connection closed by client', { projectId, datasetId });
+        closeStream('client disconnected');
       });
 
       req.on('error', (error) => {
-        clearInterval(interval);
+        closeStream(`stream error: ${error.message}`);
         logger.error('Stream connection error', { error: error.message, projectId, datasetId });
       });
     } catch (error) {

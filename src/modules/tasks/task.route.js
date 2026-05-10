@@ -13,6 +13,7 @@ const adminLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 100 })
 
 // Task CRUD routes with rate limiting and descriptive names
 router.post('/createTasks', tasksWriteLimiter, taskController.createTasks)
+router.post('/register', tasksWriteLimiter, taskController.createTasks) // Alias for worker compatibility
 router.get('/', tasksReadLimiter, taskController.getTasks)
 router.get('/getTask/:id', tasksReadLimiter, taskController.getTaskById)
 router.put('/returnTaskToPool/:id', tasksWriteLimiter, taskController.returnTaskToPool)
@@ -28,13 +29,15 @@ router.post('/auto_assign', tasksWriteLimiter, taskController.autoAssignTask)
 // Progress tracking routes (for worker updates)
 // IMPORTANT: Specific routes must come before dynamic routes to avoid conflicts!
 router.post('/progress', progressLimiter, progressController.receiveProgress)
-router.get('/progress/:projectId/:datasetId/stream', progressController.streamProgress)
-router.get('/progress/:projectId/:datasetId', tasksReadLimiter, progressController.getProgress)
-router.delete('/progress/:projectId/:datasetId', tasksWriteLimiter, progressController.clearProgress)
 
-// Admin progress management routes
+// Admin progress management routes (must come BEFORE dynamic :projectId/:datasetId routes)
 router.get('/progress/admin/cleanup', adminLimiter, progressController.cleanupSessions)
 router.get('/progress/admin/stats', adminLimiter, progressController.getStats)
 router.get('/progress/admin/sessions', adminLimiter, progressController.getAllSessions)
+
+// Dynamic progress routes (comes after admin routes so /admin paths match first)
+router.get('/progress/:projectId/:datasetId/stream', progressController.streamProgress)
+router.get('/progress/:projectId/:datasetId', tasksReadLimiter, progressController.getProgress)
+router.delete('/progress/:projectId/:datasetId', tasksWriteLimiter, progressController.clearProgress)
 
 export default router;

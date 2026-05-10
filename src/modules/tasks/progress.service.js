@@ -7,6 +7,7 @@ import logger from '../../config/logger.js';
 
 // In-memory storage for active progress sessions
 const activeSessions = new Map();
+const sessionSubscribers = new Map();
 const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const MAX_EVENTS_PER_SESSION = 10000;
 const VALID_EVENT_TYPES = new Set(['progress', 'error', 'checkpoint', 'complete', 'warning']);
@@ -23,6 +24,47 @@ const validateSessionIds = (projectId, datasetId) => {
     throw new Error('datasetId is required and must be a non-empty string');
   }
   return { projectId: projectId.trim(), datasetId: datasetId.trim() };
+};
+
+/**
+ * Generate session ID from project and dataset IDs
+ */
+const getSessionId = (projectId, datasetId) => {
+  const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
+  return { projectId: pId, datasetId: dId, sessionId: `${pId}:${dId}` };
+};
+
+/**
+ * Find the session for a projectId:datasetId pair
+ */
+const getMostRecentSession = (projectId, datasetId) => {
+  const { sessionId } = getSessionId(projectId, datasetId);
+  return activeSessions.get(sessionId) || null;
+};
+
+/**
+ * Notify subscribers of session updates
+ * Uses projectId:datasetId as subscription key (without timestamp)
+ */
+const notifySessionSubscribers = (session, event) => {
+  // Use projectId:datasetId key for lookups (subscriptions don't know about timestamp)
+  const subscriptionKey = `${session.projectId}:${session.datasetId}`;
+  const subscribers = sessionSubscribers.get(subscriptionKey);
+
+  if (!subscribers || subscribers.size === 0) {
+    return;
+  }
+
+  for (const subscriber of subscribers) {
+    try {
+      subscriber(event, session);
+    } catch (error) {
+      logger.warn('Error notifying progress subscriber', {
+        sessionId: session.sessionId,
+        error: error.message,
+      });
+    }
+  }
 };
 
 /**
@@ -46,12 +88,12 @@ const validateEvent = (event) => {
  */
 export const createSession = (projectId, datasetId) => {
   try {
-    const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
-    const sessionId = `${pId}:${dId}`;
+    const { projectId: pId, datasetId: dId, sessionId } = getSessionId(projectId, datasetId);
 
-    if (activeSessions.has(sessionId)) {
-      logger.warn('Session already exists, returning existing session', { sessionId });
-      return activeSessions.get(sessionId);
+    // Clear existing session if it exists to avoid memory leaks/conflicts
+    const existing = activeSessions.get(sessionId);
+    if (existing && existing._timeoutId) {
+      clearTimeout(existing._timeoutId);
     }
 
     const session = {
@@ -100,11 +142,11 @@ export const addEvent = (projectId, datasetId, event) => {
   try {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
     const validatedEvent = validateEvent(event);
-    const sessionId = `${pId}:${dId}`;
 
-    let session = activeSessions.get(sessionId);
+    // Find the most recent session for this projectId:datasetId
+    let session = getMostRecentSession(pId, dId);
 
-    // Create session if doesn't exist
+    // Create new session if doesn't exist
     if (!session) {
       session = createSession(pId, dId);
     }
@@ -112,7 +154,7 @@ export const addEvent = (projectId, datasetId, event) => {
     // Check event limit to prevent memory bloat
     if (session.events.length >= MAX_EVENTS_PER_SESSION) {
       const warning = `Session event limit (${MAX_EVENTS_PER_SESSION}) reached, oldest event removed`;
-      logger.warn(warning, { sessionId });
+      logger.warn(warning, { sessionId: session.sessionId });
       session.events.shift(); // Remove oldest event
     }
 
@@ -144,10 +186,12 @@ export const addEvent = (projectId, datasetId, event) => {
     }
 
     logger.debug('Event added to session', {
-      sessionId,
+      sessionId: session.sessionId,
       eventType: validatedEvent.type,
       eventCount: session.events.length,
     });
+
+    notifySessionSubscribers(session, enrichedEvent);
 
     return session;
   } catch (error) {
@@ -162,11 +206,10 @@ export const addEvent = (projectId, datasetId, event) => {
 export const getSession = (projectId, datasetId) => {
   try {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
-    const sessionId = `${pId}:${dId}`;
-    const session = activeSessions.get(sessionId);
+    const session = getMostRecentSession(pId, dId);
 
     if (!session) {
-      logger.debug('Session not found', { sessionId });
+      logger.debug('Session not found', { projectId: pId, datasetId: dId });
       return null;
     }
 
@@ -275,8 +318,7 @@ export const getSummary = (projectId, datasetId) => {
  */
 export const clearSession = (projectId, datasetId) => {
   try {
-    const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
-    const sessionId = `${pId}:${dId}`;
+    const { projectId: pId, datasetId: dId, sessionId } = getSessionId(projectId, datasetId);
     const session = activeSessions.get(sessionId);
 
     if (session && session._timeoutId) {
@@ -284,6 +326,7 @@ export const clearSession = (projectId, datasetId) => {
     }
 
     const deleted = activeSessions.delete(sessionId);
+    sessionSubscribers.delete(sessionId);
     
     if (deleted) {
       logger.info('Session cleared', { sessionId });
@@ -345,6 +388,7 @@ export const cleanupExpiredSessions = () => {
           clearTimeout(session._timeoutId);
         }
         activeSessions.delete(key);
+        sessionSubscribers.delete(key);
         cleaned += 1;
       }
     }
@@ -390,4 +434,43 @@ export const getSystemStats = () => {
     logger.error('Error getting system stats', { error: error.message });
     throw error;
   }
+};
+
+/**
+ * Subscribe to live events for a session.
+ */
+export const subscribeToSession = (projectId, datasetId, listener) => {
+  if (typeof listener !== 'function') {
+    throw new Error('listener must be a function');
+  }
+
+  const { projectId: pId, datasetId: dId, sessionId } = getSessionId(projectId, datasetId);
+  // Use the projectId:datasetId key for subscriptions (without timestamp)
+  const subscriptionKey = sessionId;
+
+  if (!sessionSubscribers.has(subscriptionKey)) {
+    sessionSubscribers.set(subscriptionKey, new Set());
+  }
+
+  sessionSubscribers.get(subscriptionKey).add(listener);
+
+  // Get or create the most recent session
+  let session = getMostRecentSession(pId, dId);
+  if (!session) {
+    session = createSession(pId, dId);
+  }
+
+  return () => {
+    const subscribers = sessionSubscribers.get(subscriptionKey);
+
+    if (!subscribers) {
+      return;
+    }
+
+    subscribers.delete(listener);
+
+    if (subscribers.size === 0) {
+      sessionSubscribers.delete(subscriptionKey);
+    }
+  };
 };

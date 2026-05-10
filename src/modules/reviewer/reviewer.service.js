@@ -11,7 +11,7 @@ export const reviewerService = {
         
 
     },
-  // Rate a task submission
+
   rateTask: async (taskId, reviewerId, rating, comment = '') => {
     try {
       const task = await Task.findById(taskId).populate('assignedTo');
@@ -24,29 +24,29 @@ export const reviewerService = {
 
       const labellerUserId = task.assignedTo._id;
 
-      // Update task with rating
+
       task.verificationScore = rating;
       task.verifiedBy = reviewerId;
       task.reviewComment = comment;
       task.reviewedAt = new Date();
-      task.status = 'verified'; // Mark as verified after rating
+      task.status = 'verified';
       await task.save();
 
-      // Update labeller's performance metrics using the labeller service
+
       await labellerService.updateRatingFromTaskReview(labellerUserId, rating);
 
-      // Check if labeller is now eligible for promotion
+
       const promotionEligibility = await labellerService.checkPromotionEligibility(labellerUserId);
       
       let promotionResult = null;
       if (promotionEligibility.isEligible) {
-        // Auto-promote if eligible
+
         promotionResult = await labellerService.promoteIfEligible(labellerUserId);
         
-        // Notify admin and labeller about the promotion
+
         if (promotionResult.promoted) {
           try {
-            // Notify admins
+
             await mailService.sendLabellerPromotionNotificationToAdmin({
               labellerName: promotionEligibility.labeller.name,
               labellerEmail: promotionEligibility.labeller.email,
@@ -55,7 +55,7 @@ export const reviewerService = {
               metrics: promotionEligibility.metrics
             });
 
-            // Notify labeller about their promotion
+
             await mailService.sendLabellerPromotionEmail(
               promotionEligibility.labeller.name,
               promotionEligibility.labeller.email,
@@ -75,7 +75,7 @@ export const reviewerService = {
           }
         }
       } else {
-        // Send notification if close to promotion
+
         const metricsGap = {
           avgScoreGap: (promotionEligibility.requirements.minAvgScore - promotionEligibility.metrics.averageQualityScore).toFixed(2),
           approvalRateGap: (promotionEligibility.requirements.minApprovalRate - promotionEligibility.metrics.approvalRate).toFixed(2),
@@ -105,7 +105,7 @@ export const reviewerService = {
     }
   },
 
-  // Submit detailed feedback
+
   submitFeedback: async (taskId, reviewerId, feedback, suggestions, issues) => {
     try {
       const task = await Task.findById(taskId);
@@ -127,7 +127,7 @@ export const reviewerService = {
     }
   },
 
-  // Get pending review tasks
+
   getPendingReviewTasks: async (reviewerId, page = 1, limit = 20) => {
     try {
       const skip = (page - 1) * limit;
@@ -154,7 +154,7 @@ export const reviewerService = {
     }
   },
 
-  // Get completed reviews
+
   getCompletedReviews: async (reviewerId, page = 1, limit = 20) => {
     try {
       const skip = (page - 1) * limit;
@@ -177,7 +177,7 @@ export const reviewerService = {
     }
   },
 
-  // Get reviewer performance stats
+
   getReviewerStats: async (reviewerId) => {
     try {
       const totalReviewed = await Task.countDocuments({ verifiedBy: reviewerId });
@@ -216,7 +216,7 @@ export const reviewerService = {
     }
   },
 
-  // Get specific task for review
+
   getTaskForReview: async (taskId, reviewerId) => {
     try {
       const task = await Task.findById(taskId)
@@ -237,7 +237,7 @@ export const reviewerService = {
     }
   },
 
-  // Approve submission
+
   approveSubmission: async (taskId, reviewerId, comment = '') => {
     try {
       const task = await Task.findById(taskId);
@@ -258,7 +258,7 @@ export const reviewerService = {
     }
   },
 
-  // Reject submission
+
   rejectSubmission: async (taskId, reviewerId, reason, suggestions = []) => {
     try {
       const task = await Task.findById(taskId);

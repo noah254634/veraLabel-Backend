@@ -1,11 +1,13 @@
 import Dataset from "./dataset.model.js";
+import Invoice from "./invoice.model.js";
 import { PutObjectCommand, PutBucketCorsCommand, CreateBucketCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { v4 as uuidv4 } from "uuid";
 import { r2 } from "../../config/r2Upload.js";
-import DatasetRequest from "../marketplace/request.model.js";
 import UserVera from "../users/user.model.js";
 import ensureCorsConfigured from "../../helpers/r2CorsConfiguration.js";
+import { verifyFileInR2 } from "../../helpers/r2Verify.js";
+import { triggerWorker } from "../../helpers/workerTrigger.js";
 
 export const datasetService = {
   generateUploadUrl: async (userId, fileType) => {
@@ -31,7 +33,7 @@ export const datasetService = {
     });
 
     const uploadUrl = await getSignedUrl(r2, command, {
-      expiresIn: 60,
+      expiresIn: 900, // 15 minutes — 60s was too short for real file uploads
     });
 
     return { uploadUrl, key };
@@ -63,39 +65,7 @@ export const datasetService = {
     ]);
     return datasets;
   },
-  createDataset: async (
-    name,
-    description,
-    price,
-    datasetLabeler,
-    datasetType,
-    datasetFormat,
-    file,
-    id,
-  ) => {
-    if (
-      !name ||
-      !description ||
-      !price ||
-      !datasetLabeler ||
-      !datasetType ||
-      !datasetFormat ||
-      !file
-    )
-      throw new Error("All fields are required");
 
-    const dataset = await Dataset.findByIdAndUpdate(id, {
-      name,
-      description,
-      price,
-      datasetLabeler,
-      datasetType,
-      datasetFormat,
-      filePath: file.location,
-      size: file.size,
-    });
-    return dataset;
-  },
   getAllDatasets: async () => {
     return await Dataset.find();
   },
@@ -115,7 +85,7 @@ export const datasetService = {
     const now = new Date();
     const date = new Date();
     const startOfDay = new Date(now.setHours(0, 0, 0, 0));
-    const startOfMonth = new Date(Date.UTC(date.getFullYear, date.getMonth, 1));
+    const startOfMonth = new Date(Date.UTC(date.getFullYear(), date.getMonth(), 1));
     const [
       datasetsToday,
       datasetsThiMonth,
@@ -139,7 +109,7 @@ export const datasetService = {
       },
     ]);
   },
-  createDatasetRequest: async (
+  createDataset: async (
     domain,
     specifications,
     volume,
@@ -159,19 +129,101 @@ export const datasetService = {
     if (!fileUrl) throw new Error("File URL is required - upload file first using /datasets/generateUploadUrl");
     if (!timeline) throw new Error("Timeline/SLA is required");
     
-    let formatted = "$" + budget.toString();
-    const dataset = await DatasetRequest.create({
-      domain,
+    // Step 1: Create a Dataset with type 'custom'
+    const priceValue = parseFloat(budget.toString().replace(/\$|,/g, "")) || 0;
+
+    const dataset = await Dataset.create({
+      type: "custom",
+      name: specifications.substring(0, 100),
       description: specifications,
+      buyerId: userId,
+      domain,
       volume,
-      budget: formatted,
+      budget: priceValue,
       format,
       timeline,
       qualityMetrics: qualityMetrics || "",
-      buyerId: userId,
       sourceLink: fileUrl,
       fileUrl: fileUrl,
+      status: "pending",
+      datasetLabeler: userId,
+      datasetType: domain || "Tabular",
+      datasetFormat: format,
+      filePath: fileUrl,
+      isPublished: false,
+      price: priceValue,
     });
-    return dataset;
+
+    return {
+      datasetId: dataset._id.toString(),
+      dataset,
+    };
+  },
+
+  confirmUpload: async (r2Key, datasetId, dataType) => {
+    // Validate inputs
+    if (!r2Key) throw new Error("r2Key is required");
+    if (!datasetId) throw new Error("datasetId is required");
+    if (!dataType) throw new Error("dataType is required");
+
+    // Step 1: Verify file exists in R2
+    const fileMetadata = await verifyFileInR2(r2Key);
+
+    // Step 2: Update existing dataset (must already exist from datasetRequest)
+    const dataset = await Dataset.findByIdAndUpdate(
+      datasetId,
+      {
+        status: "processing",
+        filePath: r2Key,
+        size: fileMetadata.size,
+      },
+      { new: true }
+    );
+
+    if (dataset) {
+      // Update the Dataset status to 'processing' for the ingestion phase
+      await Dataset.findOneAndUpdate(
+        { _id: dataset._id },
+        { status: "processing" }
+      );
+    }
+
+    if (!dataset) {
+      throw new Error(`Dataset not found: ${datasetId}. Create dataset request first.`);
+    }
+
+    // Map format to worker's supported DATA_TYPES
+    const dataTypeMap = {
+      'json': 'text',
+      'jsonl': 'text',
+      'csv': 'text',
+      'txt': 'text',
+      'jpg': 'media',
+      'jpeg': 'media',
+      'png': 'media',
+      'gif': 'media',
+      'mp4': 'media',
+      'rlhf': 'rlhf'
+    };
+
+    const workerDataType = dataTypeMap[dataset.datasetFormat?.toLowerCase()] || 'text';
+
+    // Step 3: Trigger worker to start splitting
+    const projectId = dataset.datasetLabeler?.toString() || "unknown";
+    const workerResult = await triggerWorker(r2Key, projectId, dataset._id.toString(), workerDataType);
+
+    return {
+      success: true,
+      message: workerResult.partialSuccess
+        ? "File uploaded successfully. Processing started but some task batches failed to register — they will be retried."
+        : "File uploaded and verified successfully, splitting initiated",
+      datasetId: dataset._id.toString(),
+      status: dataset.status,
+      ...(workerResult.partialSuccess && {
+        partialSuccess: true,
+        failedBatches: workerResult.failedBatches,
+        count: workerResult.count,
+      }),
+    };
   },
 };

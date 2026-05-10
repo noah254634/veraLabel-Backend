@@ -2,6 +2,7 @@ import { labellerAnalyticsService } from './labeller.analytics.service.js';
 
 export const labellerAnalyticsController = {
   getOverview: async (req, res) => {
+    try {
     const [
       labellerCount,
       activeLabellerCount,
@@ -26,9 +27,14 @@ export const labellerAnalyticsController = {
       earningsData,
       activityMetrics
     });
-  },
+  }
+catch(err){
+  return res.status(500).json({error:err.message});
+}
+},
 
   getPerformanceAnalytics: async (req, res) => {
+    try{
     const metrics = await labellerAnalyticsService.getAveragePerformanceMetrics();
     const distribution = await labellerAnalyticsService.getPerformanceDistribution();
 
@@ -36,9 +42,15 @@ export const labellerAnalyticsController = {
       averageMetrics: metrics,
       distribution
     });
+  }catch(err){
+    return res.status(500).json({error:err.message});
+  }
   },
 
+
   getTierAnalytics: async (req, res) => {
+    try{
+
     const byTier = await labellerAnalyticsService.getLabellersByTierWithStats();
     const promotionTrend = await labellerAnalyticsService.getTierPromotionTrend();
 
@@ -46,9 +58,14 @@ export const labellerAnalyticsController = {
       byTier,
       promotionTrend
     });
-  },
+  }
+  catch(err){
+    return res.status(500).json({error:err.message});
+  }
+  } ,
 
   getEarningsAnalytics: async (req, res) => {
+    try{
     const [totals, distribution, topEarners] = await Promise.all([
       labellerAnalyticsService.getTotalEarningsPaid(),
       labellerAnalyticsService.getEarningsDistribution(),
@@ -60,27 +77,43 @@ export const labellerAnalyticsController = {
       distribution,
       topEarners
     });
+  }catch(err){
+    return res.status(500).json({error:err.message});
+  }
   },
 
+
   getActivityAnalytics: async (req, res) => {
+    try{
     const activityMetrics = await labellerAnalyticsService.getActivityMetrics();
     return res.status(200).json(activityMetrics);
+  }catch(err){
+    return res.status(500).json({error:err.message});
+  }
   },
 
   getTaskCompletionAnalytics: async (req, res) => {
-    const stats = await labellerAnalyticsService.getTaskCompletionStats();
-    return res.status(200).json(stats);
+    try{
+      const stats = await labellerAnalyticsService.getTaskCompletionStats();
+      return res.status(200).json(stats);
+    }catch(err){
+      return res.status(500).json({error:err.message});
+    }
   },
 
   getRatingAnalytics: async (req, res) => {
-    const [avgRating, distribution] = await Promise.all([
-      labellerAnalyticsService.getAverageRating(),
-      labellerAnalyticsService.getRatingDistribution()
-    ]);
+    try{
+      const [avgRating, distribution] = await Promise.all([
+        labellerAnalyticsService.getAverageRating(),
+        labellerAnalyticsService.getRatingDistribution()
+      ]);
 
     return res.status(200).json({
       averageRating: avgRating,
       distribution
     });
+  }catch(err){
+    return res.status(500).json({error:err.message}); 
   }
+}
 };

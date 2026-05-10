@@ -1,5 +1,7 @@
 import { r2 } from "../../config/r2Upload.js";
 import logger from "../../config/logger.js";
+import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 /**
  * R2 CONTENT FETCHER SERVICE
@@ -28,18 +30,30 @@ export const r2ContentFetcher = {
 
       logger.info('Fetching task content from R2', { r2Ref });
 
-      const object = await r2.getObject(r2Ref);
+      const command = new GetObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME,
+        Key: r2Ref
+      });
+
+      const object = await r2.send(command);
       if (!object) {
         throw new Error(`Content not found in R2: ${r2Ref}`);
       }
 
+      // Convert stream to buffer
+      const chunks = [];
+      for await (const chunk of object.Body) {
+        chunks.push(chunk);
+      }
+      const buffer = Buffer.concat(chunks);
+
       logger.debug('Task content fetched from R2', {
         r2Ref,
-        size: object.size,
-        etag: object.etag
+        size: object.ContentLength,
+        etag: object.ETag
       });
 
-      return object.body;
+      return buffer;
     } catch (error) {
       logger.error('Error fetching content from R2', {
         r2Ref,
@@ -63,14 +77,13 @@ export const r2ContentFetcher = {
 
       logger.debug('Generating presigned URL for R2 content', { r2Ref, expiresIn });
 
-      // Use S3 API to generate presigned URL
       const command = new GetObjectCommand({
         Bucket: process.env.R2_BUCKET_NAME,
         Key: r2Ref
       });
 
       const url = await getSignedUrl(r2, command, {
-        expiresIn: expiresIn * 60 // Convert minutes to seconds
+        expiresIn: expiresIn * 60
       });
 
       logger.debug('Presigned URL generated', {
@@ -103,9 +116,12 @@ export const r2ContentFetcher = {
 
       logger.info('Fetching content metadata from R2', { r2Ref });
 
-      const object = await r2.headObject({
+      const command = new HeadObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME,
         Key: r2Ref
       });
+
+      const object = await r2.send(command);
 
       const metadata = {
         size: object.ContentLength,

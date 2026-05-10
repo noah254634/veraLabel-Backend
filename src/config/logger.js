@@ -1,18 +1,8 @@
-import pino from "pino";
-
-const logger = pino({
-  level: process.env.LOG_LEVEL || "info",
-  transport:
-    process.env.NODE_ENV !== "production"
-      ? {
-          target: "pino-pretty",
-          options: {
-            colorize: true,
-            translateTime: true,
-            ignore: "pid,hostname"
-          }
-        }
-      : undefined
-});
+const logger = {
+  info:  (...args) => console.log(...args),
+  warn:  (...args) => console.warn(...args),
+  error: (...args) => console.error(...args),
+  debug: (...args) => console.debug(...args),
+};
 
 export default logger;

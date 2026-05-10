@@ -168,9 +168,7 @@ export const adminService = {
     if (!id) {
       throw new Error("Id not found");
     }
-    /*if (!reason) {
-      throw new Error("Reason not found to suspend user");
-    }*/
+
     const updatedUser = await UserVera.findOneAndUpdate(
       { _id: id, "isSuspended.status": { $ne: true } },
       { $set: { "isSuspended.status": true, "isSuspended.reason": reason } },
@@ -223,7 +221,7 @@ export const adminService = {
     return user;
   },
   
-  // TEMPORARY: Promote user by email (for dev/setup only)
+
   promoteUserByEmail: async (email) => {
     if (!email) throw new Error("Email required to do this action");
     const user = await UserVera.findOneAndUpdate(

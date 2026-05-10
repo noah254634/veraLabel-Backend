@@ -1,19 +1,14 @@
 import logger from "./logger.js";
 
-/**
- * Sanitize error messages for frontend consumption
- * - Prevents sensitive info leakage (paths, DB errors, stack traces)
- * - Logs full errors server-side for debugging
- * - Returns generic user-friendly messages
- */
+
 export const sanitizeErrorResponse = (error, isDevelopment = false) => {
   const errorType = error.name || error.constructor.name;
   
-  // For AppError (safe, user-facing errors), only log the message
+
   if (errorType === "AppError") {
     logger.info(`AppError: ${error.message}`);
   } else {
-    // For unexpected errors, log full details for debugging
+
     logger.error({
       type: errorType,
       message: error.message,
@@ -22,7 +17,7 @@ export const sanitizeErrorResponse = (error, isDevelopment = false) => {
     });
   }
 
-  // Prevent sending sensitive errors to frontend in production
+
   if (isDevelopment) {
     return {
       status: error.statusCode || 500,
@@ -30,16 +25,16 @@ export const sanitizeErrorResponse = (error, isDevelopment = false) => {
     };
   }
 
-  // Production: Generic responses based on error type
+
   switch (errorType) {
-    // Custom application error (safe to expose)
+
     case "AppError":
       return {
         status: error.statusCode || 400,
         message: error.message,
       };
     
-    // Database errors
+
     case "MongoError":
     case "MongoServerError":
     case "MongoNetworkError":
@@ -48,14 +43,14 @@ export const sanitizeErrorResponse = (error, isDevelopment = false) => {
         message: "Database connection error. Please try again later.",
       };
     
-    // Validation errors
+
     case "ValidationError":
       return {
         status: 400,
         message: "Invalid input provided.",
       };
     
-    // JWT/Auth errors
+
     case "JsonWebTokenError":
     case "TokenExpiredError":
       return {
@@ -63,7 +58,7 @@ export const sanitizeErrorResponse = (error, isDevelopment = false) => {
         message: "Authentication failed.",
       };
     
-    // File system errors
+
     case "ENOENT":
     case "EACCES":
       return {
@@ -71,7 +66,7 @@ export const sanitizeErrorResponse = (error, isDevelopment = false) => {
         message: "Internal server error.",
       };
     
-    // Network errors
+
     case "ECONNREFUSED":
     case "ETIMEDOUT":
       return {
@@ -79,7 +74,7 @@ export const sanitizeErrorResponse = (error, isDevelopment = false) => {
         message: "Service temporarily unavailable.",
       };
     
-    // Default: Generic error
+
     default:
       return {
         status: error.statusCode || 500,
@@ -88,10 +83,7 @@ export const sanitizeErrorResponse = (error, isDevelopment = false) => {
   }
 };
 
-/**
- * Custom application error class
- * Use this for errors that are safe to send to frontend
- */
+
 export class AppError extends Error {
   constructor(message, statusCode = 400) {
     super(message);
@@ -100,9 +92,7 @@ export class AppError extends Error {
   }
 }
 
-/**
- * Validate that sensitive environment variables aren't exposed
- */
+
 export const validateEnvSecurity = () => {
   const sensitiveKeys = [
     'MONGO_URI',
@@ -118,7 +108,7 @@ export const validateEnvSecurity = () => {
   ];
 
   const exposed = sensitiveKeys.filter(key => {
-    // Check that these aren't accidentally logged or exposed
+
     return process.env[key];
   });
 

@@ -1,6 +1,7 @@
 import Payment from "../models/payment.model.js";
 import { PaymentProvider } from "../payment.provider.js";
 import Dataset from "../../datasets/dataset.model.js";
+import Invoice from "../../datasets/invoice.model.js";
 import Order from "../../marketplace/order.model.js";
 import mongoose from "mongoose";
 import logger from "../../../config/logger.js";
@@ -69,43 +70,78 @@ export const PaymentService = {
     );
   },
 
-  // Called after provider confirms payment
+
   processPaymentPostVerification: async (payment, providerResult) => {
     logger.info("Processing payment post verification");
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
-      // Update payment
       payment.status =
         providerResult.status === "success" ? "completed" : "payment_failed";
       await payment.save({ session });
 
-      // Populate order
-      const { order: populatedOrder } = await payment.populate("order");
 
-      // Update order
+      const { order: populatedOrder } = await payment.populate("order");
+      if (!populatedOrder) throw new Error("Order not found during verification");
+
+
       populatedOrder.status =
         providerResult.status === "success" ? "approved" : "rejected";
       await populatedOrder.save({ session });
 
-      // Update dataset
-      const dataset = await Dataset.findById(populatedOrder.datasetId).session(
-        session,
-      );
-      if (!dataset) throw new Error("Dataset not found");
+      if (payment.purpose === "dataset_request_escrow") {
+        const datasetId = populatedOrder.datasetId;
+        
+        if (providerResult.status === "success") {
+          const updatedDataset = await Dataset.findOneAndUpdate(
+            { _id: datasetId, type: 'custom' },
+            {
+              status: "in_progress",
+              paidAt: new Date()
+            },
+            { session, new: true }
+          );
 
-      if (providerResult.status === "success") {
-        dataset.purchasesCount = (dataset.purchasesCount || 0) + 1;
-
-        if (dataset.isExclusive) {
-          dataset.isPublished = false;
-          dataset.visibility = "private";
-          dataset.exclusiveBuyer = payment.payerUserId;
-          dataset.exclusivePrice = payment.amount;
+          if (updatedDataset) {
+            await Invoice.findOneAndUpdate(
+              { datasetId: datasetId },
+              { status: "completed", paidAt: new Date() },
+              { session, new: true, upsert: true }
+            );
+            logger.info("Dataset status updated to in_progress", {
+              datasetId: updatedDataset._id,
+              paymentReference: payment.reference
+            });
+          } else {
+            logger.warn("Custom Dataset not found for update", {
+              datasetId,
+              paymentReference: payment.reference
+            });
+          }
+        } else {
+          logger.warn("Payment failed - Dataset status unchanged", {
+            datasetId,
+            paymentStatus: providerResult.status
+          });
         }
+      } else if (payment.purpose === "dataset_purchase") {
+        if (providerResult.status === "success") {
 
-        await dataset.save({ session, validateBeforeSave: false });
+          const dataset = await Dataset.findById(populatedOrder.datasetId).session(session);
+          if (!dataset) throw new Error("Dataset not found");
+
+          dataset.purchasesCount = (dataset.purchasesCount || 0) + 1;
+
+          if (dataset.isExclusive) {
+            dataset.isPublished = false;
+            dataset.visibility = "private";
+            dataset.exclusiveBuyer = payment.payerUserId;
+            dataset.exclusivePrice = payment.amount;
+          }
+
+          await dataset.save({ session, validateBeforeSave: false });
+        }
       }
 
       await session.commitTransaction();
@@ -121,6 +157,25 @@ export const PaymentService = {
   },
 
   getPaymentHistory: async (userId) => {
-    return Payment.find({ payerUserId: userId }).sort({ createdAt: -1 });
+    try {
+      if (!userId) {
+        throw new Error("User ID is required");
+      }
+
+      const payments = await Payment.find({ payerUserId: userId }).sort({ createdAt: -1 }).lean();
+
+      logger.info('Payment history fetched', {
+        userId,
+        paymentCount: payments.length
+      });
+
+      return payments;
+    } catch (error) {
+      logger.error('Error fetching payment history', {
+        error: error.message,
+        userId
+      });
+      throw error;
+    }
   },
 };

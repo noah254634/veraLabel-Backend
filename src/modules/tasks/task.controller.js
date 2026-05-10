@@ -36,10 +36,27 @@ export const taskController = {
       const response = await taskService.createTask({ datasetId, projectId, tasks, isLastBatch: finalBatch });
       logger.info(`Tasks created successfully for project ${projectId}, dataset ${datasetId}. Count: ${response.count}`);
       logger.info(`Task creation response: ${JSON.stringify(response)}`);
-      return res.status(201).json(response);
+      
+      // Return 201 even if some items failed - we still successfully registered some tasks
+      // The failedItems count indicates how many items in this batch failed (malformed, etc.)
+      const statusCode = response.failedItems > 0 ? 202 : 201;  // 202 = Accepted (partial success)
+      return res.status(statusCode).json(response);
     } catch (err) {
-      logger.error(err.message);
-      return res.status(500).json({ message: err.message });
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorStack = err instanceof Error ? err.stack : 'No stack';
+      logger.error({
+        error: errorMsg,
+        stack: errorStack,
+        requestBody: req.body,
+        projectId: req.body?.projectId,
+        datasetId: req.body?.datasetId,
+        taskCount: Array.isArray(req.body?.tasks) ? req.body.tasks.length : 0,
+        taskSample: Array.isArray(req.body?.tasks) ? req.body.tasks.slice(0, 2) : null,
+      }, 'Task creation failed');
+      return res.status(500).json({ 
+        message: errorMsg,
+        type: err?.constructor?.name || 'Unknown'
+      });
     }
   },
   getTasks: async (req, res) => {

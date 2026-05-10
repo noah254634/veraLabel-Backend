@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 const datasetSchema = new mongoose.Schema(
   {
+    type: {
+      type: String,
+      enum: ["custom", "marketplace"],
+      default: "marketplace",
+    },
     purchaseCount: {
       type: Number,
       default: 0,
@@ -69,16 +74,16 @@ const datasetSchema = new mongoose.Schema(
       default: false,
     },
     metadata: {
-      numRecords: { type: Number, required: true },
+      numRecords: { type: Number, required: false },
       dataType: {
         type: String,
         enum: ["image", "text", "audio", "tabular"],
-        required: true,
+        required: false,
       },
-      labels: { type: [String], required: true },
-      sizeMB: { type: Number, required: true },
-      collectedAt: { type: String, required: true }, // could be range or year
-      features: { type: [String], required: true },
+      labels: { type: [String], required: false },
+      sizeMB: { type: Number, required: false },
+      collectedAt: { type: String, required: false },
+      features: { type: [String], required: false },
     },
     visibility:{
         type:String,
@@ -93,17 +98,17 @@ const datasetSchema = new mongoose.Schema(
     ],
     datasetType: {
       type: String,
-      enum: ["image", "text", "audio", "video"],
+      enum: ["image", "text", "audio", "video", "RLHF", "NLP", "Audio", "Tabular"],
       default: "image",
     },
     status: {
       type: String,
-      enum: ["pending", "approved", "taken_down", "rejected"],
+      enum: ["pending", "processing", "approved", "taken_down", "rejected", "awaiting_payment", "in_progress", "completed", "registration_failed", "cancelled"],
       default: "pending",
     },
     datasetFormat: {
       type: String,
-      enum: ["csv", "json", "xml", "excel"],
+      enum: ["csv", "json", "xml", "excel", "JSONL", "jsonl", "txt", "TXT", "wav", "WAV", "mp3", "MP3", "parquet", "PARQUET"],
       default: "json",
       required: true,
     },
@@ -117,9 +122,89 @@ const datasetSchema = new mongoose.Schema(
         default: "",
       },
     },
+    rows: {
+      type: Number,
+      required: false,
+    },
+    rowsCompleted: {
+      type: Number,
+      default: 0,
+    },
     filePath: {
       type: String,
       required: false,
+    },
+
+    buyerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "UserVera",
+      required: false,
+    },
+    domain: {
+      type: String,
+      required: false,
+    },
+    volume: {
+      type: String,
+      required: false,
+    },
+    budget: {
+      type: Number,
+      required: false,
+    },
+    format: {
+      type: String,
+      required: false,
+    },
+    timeline: {
+      type: String,
+      enum: ["Expedited", "Express", "Premium", "Fast", "Standard", "Relaxed", "Budget", "Comprehensive"],
+      required: false,
+    },
+    qualityMetrics: {
+      type: String,
+      required: false,
+    },
+    sourceLink: {
+      type: String,
+      required: false,
+    },
+    fileUrl: {
+      type: String,
+      required: false,
+    },
+    paidAt: {
+      type: Date,
+      required: false,
+    },
+    startedAt: {
+      type: Date,
+      required: false,
+    },
+    completedAt: {
+      type: Date,
+      required: false,
+    },
+    itemsCompleted: {
+      type: Number,
+      default: 0,
+    },
+    assignedLabelerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "UserVera",
+      required: false,
+    },
+    downloadUrl: {
+      type: String,
+      required: false,
+    },
+    reportReason: {
+      type: String,
+      required: false,
+    },
+    canBeCancelled: {
+      type: Boolean,
+      default: true,
     },
   },
   {
