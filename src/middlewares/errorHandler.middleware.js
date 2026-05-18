@@ -5,9 +5,23 @@ import logger from "../config/logger.js";
 /**
  * Async error wrapper - catches errors in route handlers
  * Usage: router.post('/endpoint', asyncHandler(async (req, res) => { ... }))
+ * Ensures all Promise rejections and thrown errors are caught by the global error handler
  */
-export const asyncHandler = (fn) => (req, res, next) => {
-  Promise.resolve(fn(req, res, next)).catch(next);
+export const asyncHandler = (fn) => {
+  if (typeof fn !== 'function') {
+    throw new TypeError('asyncHandler expects a function');
+  }
+  
+  return (req, res, next) => {
+    const fnReturn = fn(req, res, next);
+    
+    // Handle both Promises and non-async functions
+    if (fnReturn && typeof fnReturn.catch === 'function') {
+      fnReturn.catch(next);
+    } else if (fnReturn instanceof Error) {
+      next(fnReturn);
+    }
+  };
 };
 
 /**

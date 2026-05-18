@@ -1,239 +1,140 @@
 import { reviewerAnalyticsService } from './reviewer.analytics.service.js';
 import logger from '../../config/logger.js';
+import { asyncHandler } from '../../middlewares/errorHandler.middleware.js';
+import ResponseHandler from '../../helpers/responseHandler.js';
+import { getUserIdFromRequest } from '../../helpers/userExtraction.js';
+import { validateRequiredParams } from '../../helpers/validationHelpers.js';
 
 export const reviewerAnalyticsController = {
   // 1. OVERVIEW - Dashboard snapshot
-  getOverview: async (req, res) => {
-    try {
-      const reviewerId = req.user._id;
-      const data = await reviewerAnalyticsService.getOverview(reviewerId);
-      return res.status(200).json({ message: 'Overview fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching overview: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getOverview: asyncHandler(async (req, res) => {
+    const reviewerId = getUserIdFromRequest(req);
+    const data = await reviewerAnalyticsService.getOverview(reviewerId);
+    return ResponseHandler.success(res, data, 'Overview fetched');
+  }),
 
   // 2. LABELLER PERFORMANCE
-  getLabellerPerformance: async (req, res) => {
-    try {
-      const { page = 1, limit = 20, sortBy = 'avgRating' } = req.query;
-      const data = await reviewerAnalyticsService.getLabellerPerformance(page, limit, sortBy);
-      return res.status(200).json({ message: 'Labeller performance fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching labeller performance: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getLabellerPerformance: asyncHandler(async (req, res) => {
+    const { page = 1, limit = 20, sortBy = 'avgRating' } = req.query;
+    const data = await reviewerAnalyticsService.getLabellerPerformance(page, limit, sortBy);
+    return ResponseHandler.success(res, data, 'Labeller performance fetched');
+  }),
 
-  getLabellerDetail: async (req, res) => {
-    try {
-      const { labellerID } = req.params;
-      const data = await reviewerAnalyticsService.getLabellerDetail(labellerID);
-      return res.status(200).json({ message: 'Labeller detail fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching labeller detail: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getLabellerDetail: asyncHandler(async (req, res) => {
+    validateRequiredParams(req.params, ['labellerID']);
+    const { labellerID } = req.params;
+    const data = await reviewerAnalyticsService.getLabellerDetail(labellerID);
+    return ResponseHandler.success(res, data, 'Labeller detail fetched');
+  }),
 
-  getTopPerformers: async (req, res) => {
-    try {
-      const { limit = 10 } = req.query;
-      const data = await reviewerAnalyticsService.getTopPerformers(limit);
-      return res.status(200).json({ message: 'Top performers fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching top performers: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getTopPerformers: asyncHandler(async (req, res) => {
+    const { limit = 10 } = req.query;
+    const data = await reviewerAnalyticsService.getTopPerformers(limit);
+    return ResponseHandler.success(res, data, 'Top performers fetched');
+  }),
 
-  getUnderperformers: async (req, res) => {
-    try {
-      const { limit = 10 } = req.query;
-      const data = await reviewerAnalyticsService.getUnderperformers(limit);
-      return res.status(200).json({ message: 'Underperformers fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching underperformers: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getUnderperformers: asyncHandler(async (req, res) => {
+    const { limit = 10 } = req.query;
+    const data = await reviewerAnalyticsService.getUnderperformers(limit);
+    return ResponseHandler.success(res, data, 'Underperformers fetched');
+  }),
 
   // 3. QUALITY METRICS
-  getQualityScoreDistribution: async (req, res) => {
-    try {
-      const { days = 30 } = req.query;
-      const data = await reviewerAnalyticsService.getQualityScoreDistribution(days);
-      return res.status(200).json({ message: 'Quality score distribution fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching quality distribution: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getQualityScoreDistribution: asyncHandler(async (req, res) => {
+    const { days = 30 } = req.query;
+    const data = await reviewerAnalyticsService.getQualityScoreDistribution(days);
+    return ResponseHandler.success(res, data, 'Quality score distribution fetched');
+  }),
 
-  getRejectionReasonAnalysis: async (req, res) => {
-    try {
-      const { days = 30 } = req.query;
-      const data = await reviewerAnalyticsService.getRejectionReasonAnalysis(days);
-      return res.status(200).json({ message: 'Rejection reasons fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching rejection reasons: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getRejectionReasonAnalysis: asyncHandler(async (req, res) => {
+    const { days = 30 } = req.query;
+    const data = await reviewerAnalyticsService.getRejectionReasonAnalysis(days);
+    return ResponseHandler.success(res, data, 'Rejection reasons fetched');
+  }),
 
-  getQualityTrend: async (req, res) => {
-    try {
-      const { days = 60 } = req.query;
-      const data = await reviewerAnalyticsService.getQualityTrend(days);
-      return res.status(200).json({ message: 'Quality trend fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching quality trend: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getQualityTrend: asyncHandler(async (req, res) => {
+    const { days = 60 } = req.query;
+    const data = await reviewerAnalyticsService.getQualityTrend(days);
+    return ResponseHandler.success(res, data, 'Quality trend fetched');
+  }),
 
-  getQualityByTaskType: async (req, res) => {
-    try {
-      const data = await reviewerAnalyticsService.getQualityByTaskType();
-      return res.status(200).json({ message: 'Quality by task type fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching quality by task type: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getQualityByTaskType: asyncHandler(async (req, res) => {
+    const data = await reviewerAnalyticsService.getQualityByTaskType();
+    return ResponseHandler.success(res, data, 'Quality by task type fetched');
+  }),
 
   // 4. WORKLOAD ANALYTICS
-  getStatusDistribution: async (req, res) => {
-    try {
-      const data = await reviewerAnalyticsService.getStatusDistribution();
-      return res.status(200).json({ message: 'Status distribution fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching status distribution: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getStatusDistribution: asyncHandler(async (req, res) => {
+    const data = await reviewerAnalyticsService.getStatusDistribution();
+    return ResponseHandler.success(res, data, 'Status distribution fetched');
+  }),
 
-  getWorkloadByDataset: async (req, res) => {
-    try {
-      const { page = 1, limit = 20 } = req.query;
-      const data = await reviewerAnalyticsService.getWorkloadByDataset(page, limit);
-      return res.status(200).json({ message: 'Workload by dataset fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching workload by dataset: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getWorkloadByDataset: asyncHandler(async (req, res) => {
+    const { page = 1, limit = 20 } = req.query;
+    const data = await reviewerAnalyticsService.getWorkloadByDataset(page, limit);
+    return ResponseHandler.success(res, data, 'Workload by dataset fetched');
+  }),
 
-  getWorkloadByTaskType: async (req, res) => {
-    try {
-      const data = await reviewerAnalyticsService.getWorkloadByTaskType();
-      return res.status(200).json({ message: 'Workload by task type fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching workload by task type: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getWorkloadByTaskType: asyncHandler(async (req, res) => {
+    const data = await reviewerAnalyticsService.getWorkloadByTaskType();
+    return ResponseHandler.success(res, data, 'Workload by task type fetched');
+  }),
 
-  getTurnaroundTimeAnalysis: async (req, res) => {
-    try {
-      const data = await reviewerAnalyticsService.getTurnaroundTimeAnalysis();
-      return res.status(200).json({ message: 'Turnaround time analysis fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching turnaround time: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getTurnaroundTimeAnalysis: asyncHandler(async (req, res) => {
+    const data = await reviewerAnalyticsService.getTurnaroundTimeAnalysis();
+    return ResponseHandler.success(res, data, 'Turnaround time analysis fetched');
+  }),
 
   // 5. TEMPORAL ANALYTICS
-  getDailyProductivity: async (req, res) => {
-    try {
-      const { days = 30 } = req.query;
-      const reviewerId = req.user._id;
-      const data = await reviewerAnalyticsService.getDailyProductivity(reviewerId, days);
-      return res.status(200).json({ message: 'Daily productivity fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching daily productivity: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getDailyProductivity: asyncHandler(async (req, res) => {
+    const { days = 30 } = req.query;
+    const reviewerId = getUserIdFromRequest(req);
+    const data = await reviewerAnalyticsService.getDailyProductivity(reviewerId, days);
+    return ResponseHandler.success(res, data, 'Daily productivity fetched');
+  }),
 
-  getWeeklyProductivity: async (req, res) => {
-    try {
-      const { weeks = 12 } = req.query;
-      const reviewerId = req.user._id;
-      const data = await reviewerAnalyticsService.getWeeklyProductivity(reviewerId, weeks);
-      return res.status(200).json({ message: 'Weekly productivity fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching weekly productivity: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getWeeklyProductivity: asyncHandler(async (req, res) => {
+    const { weeks = 12 } = req.query;
+    const reviewerId = getUserIdFromRequest(req);
+    const data = await reviewerAnalyticsService.getWeeklyProductivity(reviewerId, weeks);
+    return ResponseHandler.success(res, data, 'Weekly productivity fetched');
+  }),
 
-  getMonthlyProductivity: async (req, res) => {
-    try {
-      const { months = 12 } = req.query;
-      const reviewerId = req.user._id;
-      const data = await reviewerAnalyticsService.getMonthlyProductivity(reviewerId, months);
-      return res.status(200).json({ message: 'Monthly productivity fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching monthly productivity: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getMonthlyProductivity: asyncHandler(async (req, res) => {
+    const { months = 12 } = req.query;
+    const reviewerId = getUserIdFromRequest(req);
+    const data = await reviewerAnalyticsService.getMonthlyProductivity(reviewerId, months);
+    return ResponseHandler.success(res, data, 'Monthly productivity fetched');
+  }),
 
-  getPeakReviewTimes: async (req, res) => {
-    try {
-      const reviewerId = req.user._id;
-      const data = await reviewerAnalyticsService.getPeakReviewTimes(reviewerId);
-      return res.status(200).json({ message: 'Peak review times fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching peak review times: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getPeakReviewTimes: asyncHandler(async (req, res) => {
+    const reviewerId = getUserIdFromRequest(req);
+    const data = await reviewerAnalyticsService.getPeakReviewTimes(reviewerId);
+    return ResponseHandler.success(res, data, 'Peak review times fetched');
+  }),
 
   // 6. COMPARISON ANALYTICS
-  getReviewerComparison: async (req, res) => {
-    try {
-      const reviewerId = req.user._id;
-      const data = await reviewerAnalyticsService.getReviewerComparison(reviewerId);
-      return res.status(200).json({ message: 'Reviewer comparison fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching reviewer comparison: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getReviewerComparison: asyncHandler(async (req, res) => {
+    const reviewerId = getUserIdFromRequest(req);
+    const data = await reviewerAnalyticsService.getReviewerComparison(reviewerId);
+    return ResponseHandler.success(res, data, 'Reviewer comparison fetched');
+  }),
 
-  getLabellerConsistency: async (req, res) => {
-    try {
-      const data = await reviewerAnalyticsService.getLabellerConsistency();
-      return res.status(200).json({ message: 'Labeller consistency fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching labeller consistency: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getLabellerConsistency: asyncHandler(async (req, res) => {
+    const data = await reviewerAnalyticsService.getLabellerConsistency();
+    return ResponseHandler.success(res, data, 'Labeller consistency fetched');
+  }),
 
   // 7. DATASET INSIGHTS
-  getDatasetQualityScore: async (req, res) => {
-    try {
-      const data = await reviewerAnalyticsService.getDatasetQualityScore();
-      return res.status(200).json({ message: 'Dataset quality score fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching dataset quality score: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  getDatasetQualityScore: asyncHandler(async (req, res) => {
+    const data = await reviewerAnalyticsService.getDatasetQualityScore();
+    return ResponseHandler.success(res, data, 'Dataset quality score fetched');
+  }),
 
-  getDatasetBreakdown: async (req, res) => {
-    try {
-      const { datasetId } = req.params;
-      const data = await reviewerAnalyticsService.getDatasetBreakdown(datasetId);
-      return res.status(200).json({ message: 'Dataset breakdown fetched', data });
-    } catch (err) {
-      logger.error(`Error fetching dataset breakdown: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  }
+  getDatasetBreakdown: asyncHandler(async (req, res) => {
+    validateRequiredParams(req.params, ['datasetId']);
+    const { datasetId } = req.params;
+    const data = await reviewerAnalyticsService.getDatasetBreakdown(datasetId);
+    return ResponseHandler.success(res, data, 'Dataset breakdown fetched');
+  })
 };

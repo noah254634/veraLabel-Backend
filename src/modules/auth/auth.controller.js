@@ -5,18 +5,17 @@ import mailService from "../mailer/mailService.js";
 import { generateAccessToken,generateRefreshToken,setAuthCookies,clearAuthCookies, setAccessTokenCookie } from "./auth.cookie.js";
 import logger from "../../config/logger.js";
 import { asyncHandler, AppError } from "../../middlewares/errorHandler.middleware.js";
+import ResponseHandler from "../../helpers/responseHandler.js";
+import { validateRequiredFields } from "../../helpers/validationHelpers.js";
 
 export const authController={
   getMe: asyncHandler(async (req,res)=>{
     const user=req.user;
     if (!user) throw new AppError("User not found", 404);
-    return res.status(200).json({
-      message:"User fetched successfully",
-      user
-    })
+    return ResponseHandler.success(res, { user }, "User fetched successfully");
   }),
   
-signup: asyncHandler(async (req, res) => {
+  signup: asyncHandler(async (req, res) => {
     const dto = validateSignup(req.body);
     logger.info({ email: dto.email }, "Signup attempt");
     const user = await authService.createUser(dto);
@@ -25,32 +24,25 @@ signup: asyncHandler(async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
     setAuthCookies(res, accessToken, refreshToken);
-    return res.status(201).json({
-      message: "User created successfully",
-      user,
-    });
-}),
+    return ResponseHandler.created(res, { user }, "User created successfully");
+  }),
 
-login: asyncHandler(async (req, res) => {
+  login: asyncHandler(async (req, res) => {
     const dto = validateLogin(req.body);
     logger.debug({ email: dto.email }, "Login attempt");
     const user=await authService.loginUser(dto);
     if (!user) throw new AppError("Invalid credentials", 401);
     
-    // Remove password from user object before sending
     const userResponse = user.toObject ? user.toObject() : user;
     delete userResponse.password;
     
     const accessToken=generateAccessToken(user);
     const refreshToken=generateRefreshToken(user);
     setAuthCookies(res,accessToken,refreshToken);
-    return res.status(200).json({
-        message:"User logged in successfully",
-        user: userResponse
-    })
-}),
+    return ResponseHandler.success(res, { user: userResponse }, "User logged in successfully");
+  }),
   
-refreshToken: asyncHandler(async (req, res) => {
+  refreshToken: asyncHandler(async (req, res) => {
     const { refreshToken } = req.cookies;
     if (!refreshToken) throw new AppError("Refresh token not found", 401);
 
@@ -58,37 +50,35 @@ refreshToken: asyncHandler(async (req, res) => {
     if (!accessToken) throw new AppError("Token refresh failed", 401);
     
     setAccessTokenCookie(res, accessToken);
-    return res.status(200).json({ message: "Access token refreshed successfully" });
-}),
+    return ResponseHandler.success(res, null, "Access token refreshed successfully");
+  }),
 
-logout: asyncHandler(async (req,res)=>{
+  logout: asyncHandler(async (req,res)=>{
     clearAuthCookies(res);
-    return res.status(200).json({
-        message:"User logged out successfully"
-    })
-}),
+    return ResponseHandler.success(res, null, "User logged out successfully");
+  }),
 
-verifyEmail: asyncHandler(async (req,res)=>{
-  const { email, token } = req.body;
-  if (!email || !token) throw new AppError("Email and token are required", 400);
-  
-  await mailService.verifyEmailAccount(email, token);
-  return res.status(200).json({ message: "Email verified successfully" });
-}),
+  verifyEmail: asyncHandler(async (req,res)=>{
+    validateRequiredFields(req.body, ['email', 'token']);
+    const { email, token } = req.body;
+    
+    await mailService.verifyEmailAccount(email, token);
+    return ResponseHandler.success(res, null, "Email verified successfully");
+  }),
 
-forgotPassword: asyncHandler(async(req,res)=>{
-  const { email } = req.body;
-  if (!email) throw new AppError("Email is required", 400);
-  
-  const result=await authService.forgotPassword(email);
-  return res.status(200).json({message:"Password reset email sent successfully",result});
-}),
+  forgotPassword: asyncHandler(async(req,res)=>{
+    validateRequiredFields(req.body, ['email']);
+    const { email } = req.body;
+    
+    const result=await authService.forgotPassword(email);
+    return ResponseHandler.success(res, result, "Password reset email sent successfully");
+  }),
 
-resetPassword: asyncHandler(async(req,res)=>{
-  const { email,token,password } = req.body;
-  if(!email || !token || !password) throw new AppError("All fields are required", 400);
-  
-  const result=await authService.resetPassword(email,token,password);
-  return res.status(200).json({message:"Password reset successfully",result});
-})
+  resetPassword: asyncHandler(async(req,res)=>{
+    validateRequiredFields(req.body, ['email', 'token', 'password']);
+    const { email,token,password } = req.body;
+    
+    const result=await authService.resetPassword(email,token,password);
+    return ResponseHandler.success(res, result, "Password reset successfully");
+  })
 }

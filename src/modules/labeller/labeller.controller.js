@@ -1,100 +1,107 @@
 import { labellerService } from './labeller.service.js';
 import logger from '../../config/logger.js';
+import { asyncHandler, AppError } from '../../middlewares/errorHandler.middleware.js';
+import ResponseHandler from '../../helpers/responseHandler.js';
+import { getUserIdFromRequest } from '../../helpers/userExtraction.js';
+import { validateRequiredFields, validateRequiredParams } from '../../helpers/validationHelpers.js';
 
 export const labellerController = {
-  createProfile: async (req, res) => {
-    const { profileData } = req.body;
-    const userId = req.user._id;
+  createProfile: asyncHandler(async (req, res) => {
+    validateRequiredFields(req.body, ['profileData']);
+    const userId = getUserIdFromRequest(req);
+    const labeller = await labellerService.createLabellerProfile(userId, req.body.profileData);
+    return ResponseHandler.created(res, labeller, 'Labeller profile created successfully');
+  }),
 
-    const labeller = await labellerService.createLabellerProfile(userId, profileData);
-    return res.status(201).json(labeller);
-  },
-
-  getProfile: async (req, res) => {
-    const userId = req.user._id;
+  getProfile: asyncHandler(async (req, res) => {
+    const userId = getUserIdFromRequest(req);
     const labeller = await labellerService.getLabellerProfile(userId);
-    return res.status(200).json(labeller);
-  },
+    return ResponseHandler.success(res, labeller, 'Profile retrieved successfully');
+  }),
 
-  updateProfile: async (req, res) => {
-    const userId = req.user._id;
+  updateProfile: asyncHandler(async (req, res) => {
+    const userId = getUserIdFromRequest(req);
     const labeller = await labellerService.updateLabellerProfile(userId, req.body);
-    return res.status(200).json(labeller);
-  },
+    return ResponseHandler.success(res, labeller, 'Profile updated successfully');
+  }),
 
-  getPerformance: async (req, res) => {
-    const userId = req.user._id;
+  getPerformance: asyncHandler(async (req, res) => {
+    const userId = getUserIdFromRequest(req);
     const performance = await labellerService.getPerformanceMetrics(userId);
-    return res.status(200).json(performance);
-  },
+    return ResponseHandler.success(res, performance, 'Performance metrics retrieved');
+  }),
 
-  getAssignedTasks: async (req, res) => {
-    const userId = req.user._id;
+  getAssignedTasks: asyncHandler(async (req, res) => {
+    const userId = getUserIdFromRequest(req);
     const tasks = await labellerService.getAssignedTasks(userId);
-    return res.status(200).json(tasks);
-  },
+    return ResponseHandler.success(res, tasks, 'Assigned tasks retrieved');
+  }),
 
-  completeTask: async (req, res) => {
+  completeTask: asyncHandler(async (req, res) => {
+    validateRequiredFields(req.body, ['taskId', 'qualityScore']);
     const { taskId, qualityScore } = req.body;
-    const userId = req.user._id;
-
+    const userId = getUserIdFromRequest(req);
     const result = await labellerService.completeTask(userId, taskId, qualityScore);
-    return res.status(200).json({ message: 'Task completed', result });
-  },
+    return ResponseHandler.success(res, result, 'Task completed successfully');
+  }),
 
-  rejectTask: async (req, res) => {
+  rejectTask: asyncHandler(async (req, res) => {
+    validateRequiredFields(req.body, ['taskId']);
     const { taskId } = req.body;
-    const userId = req.user._id;
-
+    const userId = getUserIdFromRequest(req);
     const result = await labellerService.rejectTask(userId, taskId);
-    return res.status(200).json({ message: 'Task rejected', result });
-  },
+    return ResponseHandler.success(res, result, 'Task rejected successfully');
+  }),
 
-  getEarnings: async (req, res) => {
-    const userId = req.user._id;
+  getEarnings: asyncHandler(async (req, res) => {
+    const userId = getUserIdFromRequest(req);
     const earnings = await labellerService.getEarnings(userId);
-    return res.status(200).json(earnings);
-  },
+    return ResponseHandler.success(res, earnings, 'Earnings retrieved successfully');
+  }),
 
-  getTier: async (req, res) => {
-    const userId = req.user._id;
+  getTier: asyncHandler(async (req, res) => {
+    const userId = getUserIdFromRequest(req);
     const tierInfo = await labellerService.getTier(userId);
-    return res.status(200).json(tierInfo);
-  },
+    return ResponseHandler.success(res, tierInfo, 'Tier information retrieved');
+  }),
 
-  getStats: async (req, res) => {
-    const userId = req.user._id;
+  getStats: asyncHandler(async (req, res) => {
+    const userId = getUserIdFromRequest(req);
     const stats = await labellerService.getLabellerStats(userId);
-    return res.status(200).json(stats);
-  },
+    return ResponseHandler.success(res, stats, 'Statistics retrieved successfully');
+  }),
 
-  getTopLabellersByPerformance: async (req, res) => {
+  getTopLabellersByPerformance: asyncHandler(async (req, res) => {
     const { limit = 10 } = req.query;
     const labellers = await labellerService.getTopLabellersByPerformance(parseInt(limit));
-    return res.status(200).json(labellers);
-  },
+    return ResponseHandler.success(res, labellers, 'Top labellers retrieved');
+  }),
 
-  getLabellersByTier: async (req, res) => {
+  getLabellersByTier: asyncHandler(async (req, res) => {
+    validateRequiredParams(req.params, ['tier']);
     const { tier } = req.params;
     const labellers = await labellerService.getLabellersByTier(tier);
-    return res.status(200).json(labellers);
-  },
+    return ResponseHandler.success(res, labellers, 'Labellers retrieved by tier');
+  }),
 
-  updateLabellerStatus: async (req, res) => {
+  updateLabellerStatus: asyncHandler(async (req, res) => {
+    validateRequiredFields(req.body, ['labellerUserId', 'status', 'reason']);
     const { labellerUserId, status, reason } = req.body;
     const result = await labellerService.updateLabellerStatus(labellerUserId, status, reason);
-    return res.status(200).json(result);
-  },
+    return ResponseHandler.success(res, result, 'Labeller status updated');
+  }),
 
-  promoteLabellerTier: async (req, res) => {
+  promoteLabellerTier: asyncHandler(async (req, res) => {
+    validateRequiredFields(req.body, ['labellerUserId', 'newTier']);
     const { labellerUserId, newTier } = req.body;
     const result = await labellerService.promoteLabellerTier(labellerUserId, newTier);
-    return res.status(200).json(result);
-  },
+    return ResponseHandler.success(res, result, 'Labeller promoted successfully');
+  }),
 
-  assignTasksToLabeller: async (req, res) => {
+  assignTasksToLabeller: asyncHandler(async (req, res) => {
+    validateRequiredFields(req.body, ['labellerUserId', 'taskIds']);
     const { labellerUserId, taskIds } = req.body;
     const result = await labellerService.assignTasksToLabeller(labellerUserId, taskIds);
-    return res.status(200).json(result);
-  }
+    return ResponseHandler.success(res, result, 'Tasks assigned successfully');
+  })
 };
