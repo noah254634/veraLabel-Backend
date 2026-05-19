@@ -23,7 +23,19 @@ export const adminController = {
       return res.status(400).json({ message: err.message });
     }
   },
-  deleteUser: async (req, res) => {},
+  deleteUser: async (req, res) => {
+    logger.info("Deleting user");
+    try {
+      const { id } = req.params;
+      const user = await adminService.deleteUserById(id);
+      return res.json(user);
+    } catch (err) {
+      logger.error(`Error deleting user: ${err.message}`);
+      return res.status(400).json({ message: err.message });
+    }
+
+
+  },
   rateUser:async(req,res)=>{
     logger.info("Rating User")
     const {id}=req.params;
@@ -66,6 +78,19 @@ publishDataset: async (req, res) => {
       return res.json(dataset);
     } catch (err) {
       logger.error(`Error updating dataset price: ${err.message}`);
+      return res.status(400).json({ message: err.message });
+    }
+  },
+  updateDatasetBatchPrice: async (req, res) => {
+    try {
+      logger.info("Updating dataset batch price");
+      const { id } = req.params;
+      const { pricePerBatch } = req.body;
+      if (pricePerBatch === undefined) throw new Error("Batch price not found");
+      const dataset = await adminService.updateDatasetBatchPrice(id, parseFloat(pricePerBatch));
+      return res.json(dataset);
+    } catch (err) {
+      logger.error(`Error updating batch price: ${err.message}`);
       return res.status(400).json({ message: err.message });
     }
   },
@@ -255,6 +280,46 @@ publishDataset: async (req, res) => {
       return res.json(dataset);
     } catch (err) {
       logger.error(`Error rejecting dataset: ${err.message}`);
+      return res.status(400).json({ message: err.message });
+    }
+  },
+  updateDatasetStatus: async (req, res) => {
+    try {
+      logger.info("Overriding dataset status");
+      const { id } = req.params;
+      const { status } = req.body;
+      if (!status) throw new Error("Status is required");
+      const dataset = await adminService.updateDatasetStatus(id, status);
+      return res.json(dataset);
+    } catch (err) {
+      logger.error(`Error overriding status: ${err.message}`);
+      return res.status(400).json({ message: err.message });
+    }
+  },
+  updateDatasetPriority: async (req, res) => {
+    try {
+      logger.info("Updating dataset priority");
+      const { id } = req.params;
+      const { priority } = req.body;
+      if (!priority) throw new Error("Priority is required");
+      const dataset = await adminService.updateDatasetPriority(id, priority);
+      return res.json(dataset);
+    } catch (err) {
+      logger.error(`Error updating priority: ${err.message}`);
+      return res.status(400).json({ message: err.message });
+    }
+  },
+  updateDatasetMaxLabellers: async (req, res) => {
+    try {
+      logger.info("Updating dataset max labellers");
+      const { id } = req.params;
+      const { maxLabellers } = req.body;
+      if (!maxLabellers) throw new Error("Max labellers is required");
+      const parsedMax = parseInt(maxLabellers, 10);
+      const dataset = await adminService.updateDatasetMaxLabellers(id, parsedMax);
+      return res.json(dataset);
+    } catch (err) {
+      logger.error(`Error updating max labellers: ${err.message}`);
       return res.status(400).json({ message: err.message });
     }
   },

@@ -4,23 +4,8 @@ export const onboardingController = {
   createLabellerProfile: async (req, res) => {
     try {
         logger.info(req.body);
-        let {age, expertise, skillTags,gender,location,annotationExperience, } = req.body;
-        if(location && location.location){
-            location=location.location
-        }
-        if ( !age || !expertise || !skillTags||!gender||!location) {
-          throw new Error("All fields are required");
-        }
         const userId = req.user._id;
-        const response = await onboardingService.createLabellerProfile(
-          userId,
-          age,
-          expertise,
-          skillTags,
-          gender,
-          location,
-          annotationExperience,
-        );
+        const response = await onboardingService.createLabellerProfile(userId, req.body);
         return res.status(200).json(response);
     } catch (err) {
       logger.error(err.message);
@@ -29,7 +14,7 @@ export const onboardingController = {
   },
   getLabellerProfile: async (req, res) => {
     try {
-        const response=await onboardingService.getLabellerProfile(req.user._id);
+        const response = await onboardingService.getLabellerProfile(req.user._id);
         return res.status(200).json(response);
     }catch(err){
       return res.status(400).json({error:err.message});
@@ -37,12 +22,8 @@ export const onboardingController = {
   },
   updateLabellerProfile: async (req, res) => {
     try {
-        const { languages, age, expertise, skillTags } = req.body;
-        let userId = req.user._id;
-        if (req.user.role === "admin" && req.body.userId) {
-          userId = req.body.userId;
-        }
-        const response=await onboardingService.updateLabellerProfile(userId,languages,age,expertise,skillTags);
+        const userId = req.user.role === "admin" && req.body.userId ? req.body.userId : req.user._id;
+        const response = await onboardingService.updateLabellerProfile(userId, req.body);
         return res.status(200).json(response);
     }catch(err){
       return res.status(400).json({error:err.message});
@@ -50,8 +31,8 @@ export const onboardingController = {
   },
   deleteLabellerProfile: async (req, res) => {
     try {
-        const response=await onboardingService.deleteLabellerProfile(req.user._id);
-        return res.status(200).json(response,{message:"Labeller profile deleted successfully"});
+        const response = await onboardingService.deleteLabellerProfile(req.user._id);
+        return res.status(200).json(response);
     }catch(err){
       return res.status(400).json({error:err.message});
     }
@@ -77,7 +58,7 @@ export const onboardingController = {
   getTrainingMaterial: async (req, res) => {
     try {
       const userId = req.user._id;
-      const reponse = await onboardingService.getTrainingMaterial(userId);
+      const response = await onboardingService.getTrainingMaterial(userId);
       return res.status(200).json(response);
     } catch (err) {
       return res.status(400).json({ error: err.message });
@@ -157,6 +138,14 @@ export const onboardingController = {
       return res.status(200).json(response);
     }catch(err){
       return res.status(400).json({error:err.message});
+    }
+  },
+  completeOnboarding: async (req, res) => {
+    try {
+      const response = await onboardingService.completeOnboarding(req.user._id);
+      return res.status(200).json(response);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
     }
   },
 };

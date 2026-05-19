@@ -14,7 +14,13 @@ export const reviewerService = {
 
   rateTask: async (taskId, reviewerId, rating, comment = '') => {
     try {
-      const task = await Task.findById(taskId).populate('assignedTo');
+      const task = await Task.findById(taskId).populate({
+        path: 'assignedTo',
+        populate: {
+          path: 'userId',
+          select: 'name email'
+        }
+      });
       if (!task) throw new Error('Task not found');
       if (task.status !== 'submitted') {
         const error = new Error('Task must be in submitted status to rate');
@@ -22,7 +28,8 @@ export const reviewerService = {
         throw error;
       }
 
-      const labellerUserId = task.assignedTo._id;
+      const labellerId = task.assignedTo?._id;
+      const labellerUserId = task.assignedTo?.userId?._id || task.assignedTo?.userId || labellerId;
 
 
       task.verificationScore = rating;
@@ -63,13 +70,13 @@ export const reviewerService = {
             );
 
             logger.info('Promotion notifications sent successfully', {
-              labellerUserId,
+              labellerId,
               newTier: promotionEligibility.nextTier
             });
           } catch (mailError) {
             logger.warn('Failed to send promotion notification emails', {
               error: mailError.message,
-              labellerUserId
+              labellerId
             });
             // Don't throw - promotion already happened, email is just a bonus
           }
@@ -83,7 +90,7 @@ export const reviewerService = {
         };
 
         logger.info('Labeller metrics updated but not yet eligible for promotion', {
-          labellerUserId,
+          labellerId,
           currentTier: promotionEligibility.currentTier,
           metricsGap
         });
@@ -92,7 +99,7 @@ export const reviewerService = {
       return {
         taskId,
         rating,
-        labellerUserId,
+        labellerId,
         promotionEligibility,
         promotionResult,
         message: promotionResult?.promoted 
@@ -136,7 +143,7 @@ export const reviewerService = {
         status: 'submitted',
         verifiedBy: null 
       })
-        .populate('assignedTo', 'name email')
+        .populate({ path: 'assignedTo', populate: { path: 'userId', select: 'name email' } })
         .populate('dataset', 'name')
         .skip(skip)
         .limit(limit)
@@ -162,7 +169,7 @@ export const reviewerService = {
       const tasks = await Task.find({ 
         verifiedBy: reviewerId 
       })
-        .populate('assignedTo', 'name email')
+        .populate({ path: 'assignedTo', populate: { path: 'userId', select: 'name email' } })
         .populate('dataset', 'name')
         .skip(skip)
         .limit(limit)
@@ -220,7 +227,7 @@ export const reviewerService = {
   getTaskForReview: async (taskId, reviewerId) => {
     try {
       const task = await Task.findById(taskId)
-        .populate('assignedTo', 'name email avgRating')
+        .populate({ path: 'assignedTo', populate: { path: 'userId', select: 'name email avgRating' } })
         .populate('dataset', 'name description');
 
       if (!task) throw new Error('Task not found');

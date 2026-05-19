@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import Dataset from "../datasets/dataset.model.js";
 import UserVera from "../users/user.model.js";
+import Batch from "../tasks/task.batch.model.js";
 export const adminService = {
   promoteToReviewerById: async (id) => {
     if (!id) throw new Error("Id  required to do this action");
@@ -60,12 +61,18 @@ export const adminService = {
   },
   publishDatasetById: async (id) => {
     if (!id) throw new Error("Id not found");
-    const dataset = await Dataset.findByIdAndUpdate(
-      id,
-      { isPublished: true },
-      { new: true },
-    );
+    const dataset = await Dataset.findById(id);
     if (!dataset) throw new Error("Dataset not found");
+
+    // DATA INTEGRITY GUARD: Ensure all rows are finalized before marketplace injection
+    if (dataset.rows && dataset.rowsCompleted !== undefined) {
+      if (dataset.rowsCompleted < dataset.rows) {
+        throw new Error(`Integrity_Violation: Batch is incomplete (${dataset.rowsCompleted}/${dataset.rows} rows). Wait for ingestion to finish.`);
+      }
+    }
+
+    dataset.isPublished = true;
+    await dataset.save();
     return dataset;
   },
   updateDatasetPrice: async (id, newPrice) => {
@@ -74,6 +81,16 @@ export const adminService = {
     const dataset = await Dataset.findByIdAndUpdate(
       id,
       { price: newPrice },
+      { new: true },
+    );
+    return dataset;
+  },
+  updateDatasetBatchPrice: async (id, pricePerBatch) => {
+    if (!id) throw new Error("Id not found");
+    if (pricePerBatch === undefined) throw new Error("Batch price not found");
+    const dataset = await Dataset.findByIdAndUpdate(
+      id,
+      { pricePerBatch },
       { new: true },
     );
     return dataset;
@@ -324,5 +341,46 @@ export const adminService = {
     } catch (err) {
       return err.message;
     }
+  },
+  updateDatasetStatus: async (id, status) => {
+    if (!id) throw new Error("Dataset ID is required");
+    if (!status) throw new Error("Status is required");
+    const dataset = await Dataset.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    );
+    if (!dataset) throw new Error("Dataset not found");
+    return dataset;
+  },
+  updateDatasetPriority: async (id, priority) => {
+    if (!id) throw new Error("Dataset ID is required");
+    if (!priority) throw new Error("Priority is required");
+    const dataset = await Dataset.findByIdAndUpdate(
+      id,
+      { priority },
+      { new: true }
+    );
+    if (!dataset) throw new Error("Dataset not found");
+    return dataset;
+  },
+  updateDatasetMaxLabellers: async (id, maxLabellers) => {
+    if (!id) throw new Error("Dataset ID is required");
+    if (!maxLabellers) throw new Error("Max labellers is required");
+    
+    const dataset = await Dataset.findByIdAndUpdate(
+      id,
+      { maxLabellers },
+      { new: true }
+    );
+    if (!dataset) throw new Error("Dataset not found");
+    
+    // Update all related batches
+    await Batch.updateMany(
+      { datasetId: dataset._id },
+      { $set: { maxLabellers } }
+    );
+
+    return dataset;
   },
 };

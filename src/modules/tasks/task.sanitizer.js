@@ -1,23 +1,6 @@
 import logger from "../../config/logger.js";
 
-/**
- * TASK SANITIZATION UTILITY
- * 
- * Ensures tasks are stored with REFERENCES ONLY, not raw content.
- * Raw content is accessed via R2 references when needed.
- * 
- * Pattern:
- * - Store: taskId, r2_input_taskRef, r2_datasetUrl (references)
- * - Store: taskType, split, taskName (attributes/metadata)
- * - DON'T store: raw content, contentPreview, large data
- * - Access: Use r2_input_taskRef with R2 client to fetch content on-demand
- */
-
 export const taskSanitizer = {
-  /**
-   * Validate incoming task payload has required attributes
-   * but no raw content
-   */
   validateTaskPayload: (task, index = 0) => {
     if (!task || typeof task !== 'object') {
       throw new Error(`Invalid task at index ${index}: must be an object`);
@@ -46,40 +29,20 @@ export const taskSanitizer = {
     }
   },
 
-  /**
-   * Sanitize task: keep only attributes/references, strip raw content
-   */
   sanitizeTask: (task) => {
     const r2Ref = task.key || task.r2_url;
 
-    // Return ONLY safe attributes and R2 references
     return {
-      // REFERENCES (use these to fetch content)
       r2_input_taskRef: r2Ref,
-
-      // ATTRIBUTES (metadata)
       taskType: task.taskType,
       taskId: task.taskId || null,
       split: task.split,
       taskName: task.name || task.taskId || `task-${Date.now()}`,
-
-      // STATUS
       status: "pending",
       isAssigned: false,
-
-      // NOTE: All raw content fields are intentionally EXCLUDED:
-      // - contentPreview ❌
-      // - content ❌
-      // - rawData ❌
-      // - data ❌
-      // - fileContent ❌
-      // These are stored in R2, fetch via r2_input_taskRef when needed
     };
   },
 
-  /**
-   * Check if a task object contains raw content that shouldn't be stored
-   */
   hasRawContent: (task) => {
     const rawContentFields = [
       'content',
@@ -96,9 +59,6 @@ export const taskSanitizer = {
     );
   },
 
-  /**
-   * Strip raw content fields from a task object (defensive)
-   */
   stripRawContent: (task) => {
     const stripped = { ...task };
     const contentFields = [
@@ -115,9 +75,6 @@ export const taskSanitizer = {
     return stripped;
   },
 
-  /**
-   * Log what fields are being stored (for audit)
-   */
   logStoredFields: (task) => {
     const stored = Object.keys(task).filter(key => 
       key.startsWith('r2_') || 

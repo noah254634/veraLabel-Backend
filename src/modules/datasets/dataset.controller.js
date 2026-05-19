@@ -60,7 +60,18 @@ export const datasetController = {
 
   getAllDatasets: async (req, res) => {
     try {
-      const datasets = await datasetService.getAllDatasets();
+      const userRole = req.user?.role;
+      let filter = {};
+
+      if (userRole === "labeler") {
+        // Labellers can work on anything that is approved or already active, 
+        // even if it's not yet "published" to the marketplace.
+        filter = {
+          status: { $in: ['approved', 'in_progress', 'processing'] }
+        };
+      }
+
+      const datasets = await datasetService.getAllDatasets(filter);
       return res.json(datasets);
     } catch (err) {
       return res

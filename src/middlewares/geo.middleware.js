@@ -1,4 +1,5 @@
 import geoip from 'geoip-lite'
+import logger from '../config/logger.js'
 
 const ALLOWED_COUNTRIES = ['KE', 'UG', 'TZ', 'RW', 'BI', 'SS']
 
@@ -12,6 +13,7 @@ export const geoMiddleware = (req, res, next) => {
     req.geo = { country: 'KE', city: 'Nairobi (Local)', timezone: 'Africa/Nairobi', coords: [-1.2865, 36.8172] };
     return next();
   }
+
 
   // NEW: Bypass for Cloudflare Worker (identified by Handshake or Internal Secret)
   const handshakeHeader = req.headers['handshake-url'];
@@ -36,6 +38,15 @@ export const geoMiddleware = (req, res, next) => {
   }
 
   const { country, city, timezone, ll } = geo
+  console.log("Country", country);
+  console.log("City", city);
+  console.log("Timezone", timezone);
+  console.log("Coords", ll);
+  // Bypass for Paystack Webhooks
+  if (req.originalUrl.includes('/payments/paystack/webhook')) {
+    logger.info(`Paystack webhook received in geo middleware`, { geo: geo });
+    return next();
+  }
 
   if (!ALLOWED_COUNTRIES.includes(country)) {
     return res.status(403).json({

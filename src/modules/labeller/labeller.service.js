@@ -2,36 +2,49 @@ import Labeller from './labeller.model.js';
 import Task from '../tasks/task.model.js';
 import { settingsService } from '../admin/services/settings.service.js';
 import logger from '../../config/logger.js';
+import { normalizeLabellerProfilePayload, populateLabellerUser } from './labellerProfile.utils.js';
 
 export const labellerService = {
   createLabellerProfile: async (userId, profileData) => {
+    const normalizedPayload = normalizeLabellerProfilePayload(profileData);
+    const existingLabeller = await Labeller.findOne({ userId });
+
+    if (existingLabeller) {
+      const updatedLabeller = await Labeller.findOneAndUpdate(
+        { userId },
+        { $set: normalizedPayload },
+        { new: true, runValidators: true }
+      );
+
+      return populateLabellerUser(updatedLabeller);
+    }
+
     const labeller = await Labeller.create({
       userId,
-      profile: profileData.profile,
-      expertise: profileData.expertise,
-      tier: profileData.tier || 'Trainee',
-      isOnboarded: false,
-      status: 'active'
+      ...normalizedPayload,
+      isOnboarded: normalizedPayload.isOnboarded ?? false,
+      status: normalizedPayload.status || 'active'
     });
-    return labeller;
+    return populateLabellerUser(Labeller.findById(labeller._id));
   },
 
   getLabellerProfile: async (labellerUserId) => {
-    const labeller = await Labeller.findOne({ userId: labellerUserId })
-      .populate('userId', 'name email profilePicture')
-      .lean();
+    const labeller = await populateLabellerUser(
+      Labeller.findOne({ userId: labellerUserId })
+    ).lean();
     if (!labeller) throw new Error('Labeller profile not found');
     return labeller;
   },
 
   updateLabellerProfile: async (labellerUserId, updates) => {
+    const normalizedUpdates = normalizeLabellerProfilePayload(updates);
     const labeller = await Labeller.findOneAndUpdate(
       { userId: labellerUserId },
-      { $set: updates },
+      { $set: normalizedUpdates },
       { new: true, runValidators: true }
-    ).populate('userId', 'name email profilePicture');
+    );
     if (!labeller) throw new Error('Labeller profile not found');
-    return labeller;
+    return populateLabellerUser(labeller);
   },
 
   getPerformanceMetrics: async (labellerUserId) => {

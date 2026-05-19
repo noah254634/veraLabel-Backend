@@ -1,21 +1,14 @@
-/**
- * Progress Service - Handles dataset processing progress tracking
- * Streams updates from worker to frontend/admin with defensive validation
- */
 
 import logger from '../../config/logger.js';
 
-// In-memory storage for active progress sessions
 const activeSessions = new Map();
 const sessionSubscribers = new Map();
-const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+const SESSION_TIMEOUT = 30 * 60 * 1000;
 const MAX_EVENTS_PER_SESSION = 10000;
 const VALID_EVENT_TYPES = new Set(['progress', 'error', 'checkpoint', 'complete', 'warning']);
 const VALID_SEVERITIES = new Set(['info', 'warning', 'critical']);
 
-/**
- * Validate session identifiers
- */
+
 const validateSessionIds = (projectId, datasetId) => {
   if (!projectId || typeof projectId !== 'string' || projectId.trim().length === 0) {
     throw new Error('projectId is required and must be a non-empty string');
@@ -26,26 +19,16 @@ const validateSessionIds = (projectId, datasetId) => {
   return { projectId: projectId.trim(), datasetId: datasetId.trim() };
 };
 
-/**
- * Generate session ID from project and dataset IDs
- */
 const getSessionId = (projectId, datasetId) => {
   const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
   return { projectId: pId, datasetId: dId, sessionId: `${pId}:${dId}` };
 };
 
-/**
- * Find the session for a projectId:datasetId pair
- */
 const getMostRecentSession = (projectId, datasetId) => {
   const { sessionId } = getSessionId(projectId, datasetId);
   return activeSessions.get(sessionId) || null;
 };
 
-/**
- * Notify subscribers of session updates
- * Uses projectId:datasetId as subscription key (without timestamp)
- */
 const notifySessionSubscribers = (session, event) => {
   // Use projectId:datasetId key for lookups (subscriptions don't know about timestamp)
   const subscriptionKey = `${session.projectId}:${session.datasetId}`;
@@ -67,9 +50,6 @@ const notifySessionSubscribers = (session, event) => {
   }
 };
 
-/**
- * Validate event object structure
- */
 const validateEvent = (event) => {
   if (!event || typeof event !== 'object') {
     throw new Error('event must be a valid object');
@@ -83,9 +63,6 @@ const validateEvent = (event) => {
   return event;
 };
 
-/**
- * Create or update a progress session with auto-cleanup
- */
 export const createSession = (projectId, datasetId) => {
   try {
     const { projectId: pId, datasetId: dId, sessionId } = getSessionId(projectId, datasetId);
@@ -134,10 +111,6 @@ export const createSession = (projectId, datasetId) => {
   }
 };
 
-/**
- * Add an event to a session (creates session if not exists)
- * Enforces event limit to prevent memory issues
- */
 export const addEvent = (projectId, datasetId, event) => {
   try {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
@@ -200,9 +173,6 @@ export const addEvent = (projectId, datasetId, event) => {
   }
 };
 
-/**
- * Get session progress details
- */
 export const getSession = (projectId, datasetId) => {
   try {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
@@ -220,9 +190,6 @@ export const getSession = (projectId, datasetId) => {
   }
 };
 
-/**
- * Get only recent events (for streaming) with timestamp filtering
- */
 export const getRecentEvents = (projectId, datasetId, sinceTimestamp = null) => {
   try {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
@@ -249,9 +216,6 @@ export const getRecentEvents = (projectId, datasetId, sinceTimestamp = null) => 
   }
 };
 
-/**
- * Get comprehensive summary statistics for a session
- */
 export const getSummary = (projectId, datasetId) => {
   try {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
@@ -313,9 +277,6 @@ export const getSummary = (projectId, datasetId) => {
   }
 };
 
-/**
- * Clear a session and stop its timeout
- */
 export const clearSession = (projectId, datasetId) => {
   try {
     const { projectId: pId, datasetId: dId, sessionId } = getSessionId(projectId, datasetId);
@@ -339,9 +300,6 @@ export const clearSession = (projectId, datasetId) => {
   }
 };
 
-/**
- * Get all active sessions with filtering
- */
 export const getAllActiveSessions = (status = null) => {
   try {
     const sessions = [];
@@ -372,9 +330,6 @@ export const getAllActiveSessions = (status = null) => {
   }
 };
 
-/**
- * Cleanup expired sessions (call periodically)
- */
 export const cleanupExpiredSessions = () => {
   try {
     let cleaned = 0;
@@ -404,9 +359,6 @@ export const cleanupExpiredSessions = () => {
   }
 };
 
-/**
- * Get session statistics across all sessions
- */
 export const getSystemStats = () => {
   try {
     let totalEvents = 0;
@@ -436,9 +388,6 @@ export const getSystemStats = () => {
   }
 };
 
-/**
- * Subscribe to live events for a session.
- */
 export const subscribeToSession = (projectId, datasetId, listener) => {
   if (typeof listener !== 'function') {
     throw new Error('listener must be a function');

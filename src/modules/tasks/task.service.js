@@ -6,6 +6,8 @@ import Labeller from "../labeller/labeller.model.js";
 import { r2ContentFetcher } from "./r2.contentFetcher.js";
 import mongoose from "mongoose";
 import { invoiceService } from "../../helpers/priceCalculator.js";
+import logger from "../../config/logger.js";
+import Batch from "./task.batch.model.js";
 
 const normalizeTaskType = (task = {}) => {
   try {
@@ -59,20 +61,35 @@ const normalizeSplit = (split) => {
   }
 };
 
+const resolveLabellerDocument = async (identifier) => {
+  if (!identifier) {
+    return null;
+  }
+
+  const identifierString = String(identifier);
+
+  if (mongoose.Types.ObjectId.isValid(identifierString)) {
+    const labellerById = await Labeller.findById(identifierString);
+    if (labellerById) {
+      return labellerById;
+    }
+  }
+
+  return Labeller.findOne({ userId: identifierString });
+};
+
 const updateDatasetRecordsAndPrice = async ({ datasetId, datasetRef }) => {
   try {
     if (!datasetId || !datasetRef) {
       throw new Error('datasetId and datasetRef are required');
     }
 
-    // Count tasks belonging to this dataset ID
     const totalRows = await Task.countDocuments({
       $or: [
         { datasetId: datasetId },
         { r2_datasetUrl: datasetRef }
       ]
     });
-    
 
     let taskTypeForPricing = 'text';
     const sampleTask = await Task.findOne({ datasetId: datasetId }).select('taskType').lean();
@@ -113,13 +130,11 @@ const updateDatasetRecordsAndPrice = async ({ datasetId, datasetRef }) => {
         );
 
     if (updated) {
-      // Note: Status update to awaiting_payment will happen in createTask when invoice is generated
       logger.info('Dataset marked as approved and ready for invoicing', {
         datasetId: updated._id
       });
     }
 
-    // If it was already approved, just fetch it to return the current data
     const finalDataset = updated || (isObjectId ? await Dataset.findById(datasetId) : await Dataset.findOne({ name: datasetId }));
 
     logger.info('Dataset records and price updated', {
@@ -140,6 +155,11 @@ const updateDatasetRecordsAndPrice = async ({ datasetId, datasetRef }) => {
   }
 };
 export const taskService = {
+getBatches: async () => {
+  const batches=await Batch.find();
+  return batches;
+},
+
   createTask: async ({ datasetId, projectId, tasks, isLastBatch }) => {
     try {
       // Validate inputs with defensive checks
@@ -163,11 +183,9 @@ export const taskService = {
       const datasetRef = `projects/${projectId}/${datasetId}`;
 
       const taskEntries = tasks.map((task, index) => {
-        // Validate task payload
-        if (!task || (typeof task !== 'object')) {
           throw new Error(`Invalid task at index ${index}: task must be an object`);
         }
-
+      )
         const r2Ref = task.key || task.r2_url;
         if (!r2Ref) {
           throw new Error(`Invalid task payload at index ${index}: missing 'key' or 'r2_url'`);
@@ -175,22 +193,16 @@ export const taskService = {
         return {
           r2_datasetUrl: datasetRef,
           r2_input_taskRef: r2Ref,
-          datasetId: datasetId, // Linked dataset ID for tracking
-          
-          // Metadata attributes
+          datasetId: datasetId,
           taskType: normalizeTaskType(task),
           taskName: task.name || task.taskId || `task-${index + 1}`,
           taskId: task.taskId || null,
           split: normalizeSplit(task.split),
-          
-          // Status
           status: "pending",
           isAssigned: false,
-          
-          // Internal tracking
           _uniqueKey: task.taskId || r2Ref,
         };
-      });
+      
 
       logger.debug('Task entries prepared', {
         datasetRef,
@@ -240,9 +252,6 @@ export const taskService = {
         return !(hasMatchingTaskId || hasMatchingRef);
       });
 
-      let insertedCount = 0;
-      let failedCount = 0;
-      let duplicateCount = taskEntries.length - deduplicatedEntries.length;
       // Filter out duplicates within the current batch
       const seenUniqueKeys = new Set();
       const deduplicatedEntries = newTaskEntries.filter(task => {
@@ -259,6 +268,10 @@ export const taskService = {
         return true;
       });
 
+      let insertedCount = 0;
+      let failedCount = 0;
+      let duplicateCount = taskEntries.length - deduplicatedEntries.length;
+
       logger.info('Duplicate filtering completed', {
         totalTasks: taskEntries.length,
         afterExistingCheck: newTaskEntries.length,
@@ -270,8 +283,6 @@ export const taskService = {
         const tasksToInsert = deduplicatedEntries.map(({ _uniqueKey, ...task }) => task);
 
         try {
-          // Use unordered inserts: { ordered: false } allows valid tasks to be inserted
-          // even if some fail validation. This ensures partial success instead of total failure.
           const insertResult = await Task.insertMany(tasksToInsert, { ordered: false });
           insertedCount = insertResult.length;
           logger.info('Tasks inserted into database', {
@@ -308,7 +319,8 @@ export const taskService = {
       }
 
       let totalTasksInDataset;
-      let invoice;      if (isLastBatch) {
+      let invoice;
+      if (isLastBatch) {
         // Count total tasks for this dataset (including duplicates already in DB)
         totalTasksInDataset = await Task.countDocuments({
           $or: [{ datasetId }, { r2_datasetUrl: datasetRef }]
@@ -316,7 +328,8 @@ export const taskService = {
 
         const invoiceTaskType = normalizeTaskTypeForInvoice(taskEntries[0]?.taskType);
         try {
-          invoice = await invoiceService.generateInvoice(invoiceTaskType, totalTasksInDataset);          await Dataset.findByIdAndUpdate(
+          invoice = await invoiceService.generateInvoice(invoiceTaskType, totalTasksInDataset);
+          await Dataset.findByIdAndUpdate(
             datasetId,
             { 
               status: "awaiting_payment",
@@ -324,7 +337,8 @@ export const taskService = {
               rows: totalTasksInDataset,
               "metadata.numRecords": totalTasksInDataset
             }
-          );          await Invoice.create({
+          );
+          await Invoice.create({
             datasetId: datasetId,
             status: "pending",
             taskType: invoiceTaskType,
@@ -337,6 +351,9 @@ export const taskService = {
             totalTasks: totalTasksInDataset,
             totalCost: invoice.totalCost
           });
+
+          await taskService.createBatchesForDataset(datasetId);
+          
         } catch (invoiceError) {
           logger.error('Failed to generate final invoice', {
             error: invoiceError.message,
@@ -356,7 +373,6 @@ export const taskService = {
         success: failedCount === 0,
       };
 
-      // Only include invoice if it was generated (last batch)
       if (invoice) {
         response.invoice = invoice;
         response.message = "Tasks completed. Invoice generated and ready for payment.";
@@ -386,7 +402,8 @@ export const taskService = {
       const validPage = Math.max(1, Number.parseInt(page, 10) || 1);
       const validLimit = Math.max(1, Math.min(100, Number.parseInt(limit, 10) || 50));
 
-      const filters = {};      if (status && typeof status === 'string') {
+      const filters = {};
+      if (status && typeof status === 'string') {
         const normalizedStatus = status.trim().toLowerCase();
         if (['pending', 'assigned', 'completed', 'rejected', 'verified'].includes(normalizedStatus)) {
           filters.status = normalizedStatus;
@@ -459,11 +476,9 @@ export const taskService = {
     try {
       if (!id || typeof id !== 'string') {
         throw new Error('Valid task ID is required');
-      }      const existingUniqueKeys = new Set();
-      existingTasks.forEach(task => {
-        if (task.taskId) existingUniqueKeys.add(task.taskId);
-        if (task.r2_input_taskRef) existingUniqueKeys.add(task.r2_input_taskRef);
-      });      if (!mongoose.Types.ObjectId.isValid(id)) {
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
         throw new Error(`Invalid task ID format: ${id}`);
       }
 
@@ -475,8 +490,9 @@ export const taskService = {
         logger.warn('Task not found', { taskId: id });
         throw new Error(`Task with ID ${id} not found`);
       }
-      const taskR2Url=task.r2_input_taskRef;
-      const taskBuffer = await r2ContentFetcher.fetchTaskContent(taskR2Url);      let taskObject;
+      const taskR2Url = task.r2_input_taskRef;
+      const taskBuffer = await r2ContentFetcher.fetchTaskContent(taskR2Url);
+      let taskObject;
       try {
         taskObject = JSON.parse(taskBuffer.toString('utf-8'));
       } catch (parseError) {
@@ -514,32 +530,33 @@ export const taskService = {
         throw new Error(`Task with ID ${id} not found`);
       }
 
-      const previousAssignee = task.assignedTo;
+      const previousAssignees = Array.isArray(task.assignedTo) ? task.assignedTo : (task.assignedTo ? [task.assignedTo] : []);
 
       task.status = "pending";
       task.isAssigned = false;
-      task.assignedTo = null;
+      task.assignedTo = [];
       task.assignedAt = null;
       task.startedAt = null;
       task.completedAt = null;
 
-      await task.save();      if (previousAssignee) {
-        await Labeller.findOneAndUpdate(
-          { userId: previousAssignee },
+      await task.save();
+      if (previousAssignees.length > 0) {
+        await Labeller.updateMany(
+          { _id: { $in: previousAssignees } },
           {
             $pull: { currentAssignedTasks: id }
           }
         );
 
-        logger.info('Removed task from labeller profile', {
+        logger.info('Removed task from labeller profiles', {
           taskId: id,
-          userId: previousAssignee
+          labellerIds: previousAssignees
         });
       }
 
       logger.info('Task returned to pool successfully', {
         taskId: id,
-        previousAssignee: previousAssignee || 'unassigned',
+        previousAssignees: previousAssignees.length > 0 ? previousAssignees : 'unassigned',
       });
 
       return task;
@@ -551,25 +568,33 @@ export const taskService = {
       throw error;
     }
   },
-  assignTask: async (taskId, userId) => {
+  assignTask: async (taskId, labellerIdentifier) => {
     try {
-      if (!taskId || !userId) throw new Error("taskId and userId are required");
+      if (!taskId || !labellerIdentifier) throw new Error("taskId and labellerId are required");
       
       const task = await Task.findById(taskId);
       if (!task) throw new Error("Task not found");
       
-      const user = await UserVera.findById(userId).select('role');
+      const labeller = await resolveLabellerDocument(labellerIdentifier);
+      if (!labeller) throw new Error("Labeller profile not found");
+
+      const user = await UserVera.findById(labeller.userId).select('role');
       if (!user) throw new Error("User not found");
       if (user.role !== "labeler") throw new Error("User is not a labeler");
       if (task.isAssigned) throw new Error("Task already assigned");
 
       // Update Task document
       task.isAssigned = true;
-      task.assignedTo = userId;
+      if (!task.assignedTo) task.assignedTo = [];
+      if (!task.assignedTo.includes(labeller._id)) {
+        task.assignedTo.push(labeller._id);
+      }
       task.assignedAt = new Date();
       task.status = "in_progress";
-      await task.save();      const labeller = await Labeller.findOneAndUpdate(
-        { userId },
+      await task.save();
+
+      const updatedLabeller = await Labeller.findByIdAndUpdate(
+        labeller._id,
         {
           $addToSet: { currentAssignedTasks: task._id },
           $inc: { 'performance.totalTasksAssigned': 1 }
@@ -577,36 +602,112 @@ export const taskService = {
         { new: true }
       ).select('currentAssignedTasks performance');
 
-      if (!labeller) throw new Error("Labeller profile not found for user");
+      if (!updatedLabeller) throw new Error("Labeller profile not found for user");
 
       logger.info('Task assigned successfully', {
         taskId,
-        userId,
-        totalAssigned: labeller.performance.totalTasksAssigned,
-        currentTasks: labeller.currentAssignedTasks.length
+        labellerId: labeller._id,
+        totalAssigned: updatedLabeller.performance.totalTasksAssigned,
+        currentTasks: updatedLabeller.currentAssignedTasks.length
       });
 
       return { 
         message: "Task assigned successfully", 
         task,
         labeller: {
-          currentTasksCount: labeller.currentAssignedTasks.length,
-          totalAssigned: labeller.performance.totalTasksAssigned
+          currentTasksCount: updatedLabeller.currentAssignedTasks.length,
+          totalAssigned: updatedLabeller.performance.totalTasksAssigned
         }
       };
     } catch (error) {
       logger.error('Error assigning task', {
         error: error.message,
         taskId,
-        userId
+        labellerIdentifier
       });
       throw error;
     }
   },
-  submitTask: async (taskId, userId) => {
-    if (!taskId) throw new Error("Task id is required");
-    if (!userId) throw new Error("User id is required");
+  submitTask: async (taskId, labellerIdentifier, batchId) => {
+    try {
+      if (!taskId) throw new Error("Task id is required");
+      if (!labellerIdentifier) throw new Error("Labeller id is required");
+      if (!batchId) throw new Error("Batch id is required for verification");
 
+      const labeller = await resolveLabellerDocument(labellerIdentifier);
+      if (!labeller) throw new Error("Labeller profile not found");
+      const labellerId = labeller._id;
+
+      // 1. Verify Batch Assignment and Status
+      const batch = await Batch.findOne({ 
+        _id: batchId, 
+        assignedTo: labellerId,
+        status: 'in_progress'
+      });
+      
+      if (!batch) {
+        throw new Error("Target batch not found, not assigned to you, or mission has expired.");
+      }
+
+      // 2. Verify Task-to-Batch Relationship and Individual Assignment
+      const task = await Task.findOne({ 
+        _id: taskId, 
+        batchId: batchId,
+        assignedTo: labellerId 
+      });
+      
+      if (!task) {
+        throw new Error("Task mismatch: This task does not belong to the specified batch or is not assigned to you.");
+      }
+
+      if (task.status === 'verified' || task.status === 'submitted') {
+        throw new Error("Task security block: Task has already been submitted or verified.");
+      }
+
+      // 3. Update Task Work State
+      // Note: Raw submission data is handled directly between frontend and Cloudflare R2.
+      // The backend only manages the lifecycle metadata and verification states.
+      task.status = 'submitted';
+      task.completedAt = new Date();
+      
+      // Construct the expected R2 result path for verification later
+      if (!task.r2_task_resultRef) {
+         task.r2_task_resultRef = `${task.r2_datasetUrl}/results/${task.taskId}.json`;
+      }
+      
+      await task.save();
+
+      // 4. Update Batch Progress (Atomic)
+      const updatedBatch = await Batch.findByIdAndUpdate(
+        batchId,
+        { $inc: { completedTasks: 1 } },
+        { new: true }
+      );
+
+      // 5. Automatic Batch Lifecycle Transition
+      if (updatedBatch.completedTasks >= updatedBatch.totalTasks) {
+        updatedBatch.status = 'completed';
+        updatedBatch.completedAt = new Date();
+        await updatedBatch.save();
+        
+        logger.info(`Mission accomplished: Batch ${updatedBatch.batchId} fully completed by labeller ${labellerId}`);
+      }
+
+      logger.info(`Task submission metadata updated`, { taskId, batchId, labellerId });
+      
+      return { 
+        success: true, 
+        message: "Task marked as submitted",
+        progress: {
+          completed: updatedBatch.completedTasks,
+          total: updatedBatch.totalTasks,
+          percent: Math.round((updatedBatch.completedTasks / updatedBatch.totalTasks) * 100)
+        }
+      };
+    } catch (error) {
+      logger.error('Error updating task submission state', { error: error.message, taskId, batchId, labellerIdentifier });
+      throw error;
+    }
   },
   verifyTask: async (taskId, userId) => {
     if (!taskId || !userId) throw new Error("Task ID and User ID are required");
@@ -643,9 +744,13 @@ export const taskService = {
       task.status = "rejected";
       task.rejectionReason = reason;
       task.verificationScore = 0;
-      await task.save();      await taskService.returnTaskToPool(taskId);      if (labellerId) {
+      await task.save();
+
+      await taskService.returnTaskToPool(taskId);
+
+      if (labellerId) {
         await Labeller.findOneAndUpdate(
-          { userId: labellerId },
+          { _id: labellerId },
           {
             $inc: { 'performance.totalTasksRejected': 1 }
           }
@@ -653,7 +758,7 @@ export const taskService = {
 
         logger.info('Updated labeller rejection metrics', {
           taskId,
-          userId: labellerId
+          labellerId
         });
       }
 
@@ -666,9 +771,8 @@ export const taskService = {
       throw error;
     }
   },
-  deleteTaskBatch: async () => {
-
-  },
+  deleteTaskBatch: async () => {},
+  autoAssignTask: async () => {},
   reviewTask: async (taskId, userId, score) => {
     const task = await Task.findById(taskId);
     if (!task) throw new Error("Task not found");
@@ -705,7 +809,7 @@ export const taskService = {
         $set: {
           status: "pending",
           isAssigned: false,
-          assignedTo: null,
+          assignedTo: [],
           assignedAt: null,
           startedAt: null,
           completedAt: null,
@@ -714,4 +818,206 @@ export const taskService = {
     );
     return { message: "Tasks revoked successfully", result };
   },
+  createBatchesForDataset: async (datasetId) => {
+    try {
+      if (!datasetId) throw new Error("datasetId is required for batching");
+
+      // 1. Fetch all unbatched tasks for this dataset
+      const unbatchedTasks = await Task.find({
+        datasetId,
+        batchId: null
+      }).select('_id taskType').lean();
+
+      if (unbatchedTasks.length === 0) {
+        logger.info('No unbatched tasks found for dataset', { datasetId });
+        return { created: 0 };
+      }
+
+      logger.info(`Starting batch generation for dataset ${datasetId}`, { 
+        totalTasks: unbatchedTasks.length 
+      });
+
+      const batchSize = 10;
+      const batchesToCreate = [];
+
+      // 2. Group into 10s
+      for (let i = 0; i < unbatchedTasks.length; i += batchSize) {
+        const batchTasks = unbatchedTasks.slice(i, i + batchSize);
+        const taskIds = batchTasks.map(t => t._id);
+        const type = batchTasks[0].taskType;
+
+        batchesToCreate.push({
+          batchId: `B-${datasetId.toString().slice(-4)}-${Math.floor(i / batchSize)}-${Date.now().toString().slice(-4)}`,
+          datasetId,
+          tasks: taskIds,
+          totalTasks: taskIds.length,
+          completedTasks: 0,
+          batchType: type,
+          status: 'available',
+          priority: 0 // Could be inherited from tasks if needed
+        });
+      }
+
+      // 3. Save batches and update tasks
+      const createdBatches = await Batch.insertMany(batchesToCreate);
+
+      // Link tasks back to their batches
+      const updatePromises = createdBatches.map(batch => 
+        Task.updateMany(
+          { _id: { $in: batch.tasks } },
+          { $set: { batchId: batch._id } }
+        )
+      );
+
+      await Promise.all(updatePromises);
+
+      logger.info(`Batch generation completed for dataset ${datasetId}`, {
+        batchesCreated: createdBatches.length
+      });
+
+      return { created: createdBatches.length };
+    } catch (error) {
+      logger.error('Error in createBatchesForDataset', {
+        error: error.message,
+        datasetId
+      });
+      throw error;
+    }
+  },
+  claimBatch: async (datasetId, labellerIdentifier) => {
+    try {
+      // 1. Verify Dataset is allowed to be worked on
+      const dataset = await Dataset.findById(datasetId);
+      if (!dataset) throw new Error("Mission target node not found.");
+      
+      // Allow claiming if published OR if approved for production work
+      if (dataset.isPublished && !['approved', 'in_progress', 'processing'].includes(dataset.status)) {
+        throw new Error("This mission node is currently offline (Unpublished).");
+      }
+
+      const allowedStatuses = ['approved', 'in_progress', 'processing', 'completed'];
+      if (!allowedStatuses.includes(dataset.status)) {
+        throw new Error(`Mission authorization pending. Status: ${dataset.status}`);
+      }
+
+      // 2. Find an available batch and assign it atomically
+      const labeller = await resolveLabellerDocument(labellerIdentifier);
+      if (!labeller) throw new Error("Labeller profile not found");
+
+      const batch = await Batch.findOneAndUpdate(
+        {
+          datasetId,
+          status: { $in: ['available', 'in_progress'] },
+          assignedTo: { $ne: labeller._id },
+          $expr: {
+            $lt: [
+              { $size: { $ifNull: ["$assignedTo", []] } },
+              { $ifNull: ["$maxLabellers", 1] }
+            ]
+          }
+        },
+        {
+          $set: {
+            status: 'in_progress',
+            assignedAt: new Date(),
+            expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000) // 4 hour TTL
+          },
+          $addToSet: { assignedTo: labeller._id }
+        },
+        { new: true }
+      ).populate('tasks');
+
+      if (!batch) {
+        throw new Error("All active batches for this node are currently occupied or completed.");
+      }
+
+      // Mark all tasks in the batch as assigned
+      const taskIds = batch.tasks.filter(t => t).map(t => t._id || t);
+      await Task.updateMany(
+        { _id: { $in: taskIds } },
+        {
+          $set: {
+            isAssigned: true,
+            assignedAt: new Date(),
+            status: 'in_progress'
+          },
+          $addToSet: { assignedTo: labeller._id }
+        }
+      );
+
+      return batch;
+    } catch (error) {
+      logger.error('Error claiming batch', { error: error.message, datasetId, labellerIdentifier });
+      throw error;
+    }
+  },
+
+  getMyActiveBatch: async (labellerIdentifier) => {
+    try {
+      if (!labellerIdentifier) throw new Error("Labeller ID required");
+
+      const labeller = await resolveLabellerDocument(labellerIdentifier);
+      if (!labeller) throw new Error("Labeller profile not found");
+
+      // Find any batch that is currently 'in_progress' for this user
+      const batch = await Batch.findOne({
+        assignedTo: labeller._id,
+        status: 'in_progress'
+      }).populate({
+        path: 'tasks',
+        match: { status: { $ne: 'verified' } }
+      }).sort({ assignedAt: -1 }).lean();
+
+      return batch || null;
+    } catch (error) {
+      logger.error('Error fetching active batch', { error: error.message, labellerIdentifier });
+      throw error;
+    }
+  },
+
+  revokeExpiredBatches: async () => {
+    try {
+      const now = new Date();
+      const expiredBatches = await Batch.find({
+        status: 'in_progress',
+        expiresAt: { $lt: now }
+      });
+
+      if (expiredBatches.length === 0) return { revoked: 0 };
+
+      const batchIds = expiredBatches.map(b => b._id);
+      
+      // Reset batches to available state
+      await Batch.updateMany(
+        { _id: { $in: batchIds } },
+        {
+          $set: {
+            status: 'available',
+            assignedTo: [],
+            assignedAt: null,
+            expiresAt: null
+          }
+        }
+      );
+
+      // Reset tasks within those batches that are still marked as in_progress
+      await Task.updateMany(
+        { batchId: { $in: batchIds }, status: 'in_progress' },
+        {
+          $set: {
+            status: 'pending',
+            isAssigned: false,
+            assignedTo: [],
+            assignedAt: null
+          }
+        }
+      );
+
+      logger.info(`Batch auto-revocation complete: ${expiredBatches.length} batches returned to pool`);
+      return { revoked: expiredBatches.length };
+    } catch (error) {
+      logger.error('Critical error in batch auto-revocation', { error: error.message });
+      throw error;
+    }
+  }
 };

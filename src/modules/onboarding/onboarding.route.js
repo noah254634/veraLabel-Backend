@@ -14,6 +14,7 @@ router.put("/updateTrainingMaterials",onboardingController.updateTrainingMateria
 router.post("/createTrainingQuizes",onboardingController.createTrainingQuiz)
 router.get("/getTrainingQuizes",onboardingController.getTrainingQuiz)
 router.post("/submitTrainingQuiz",onboardingController.submitTrainingQuiz)
+router.post("/completeOnboarding",onboardingController.completeOnboarding)
 router.delete("/deleteTrainingQuizes",onboardingController.deleteTrainingQuiz)
 router.put("/updateTrainingQuizes",onboardingController.updateTrainingQuiz)
 export default router;

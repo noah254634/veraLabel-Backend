@@ -10,8 +10,8 @@ export const PaymentController = {
     try {
       const reference = req.params.reference;
       if (!reference) throw new Error("reference is required");
-      const response = await PaymentService.success(reference);
-      return res.status(200).json(response.data);
+      const status = await PaymentService.success(reference);
+      return res.status(200).json({ status });
     } catch (err) {
       return res.status(400).json({ message: err.message });
     }
@@ -77,8 +77,9 @@ export const PaymentController = {
           purpose: "dataset_purchase",
         });
         return res.status(201).json({
-          message: "Order created Successfully",
-          order,
+          message: "Order created successfully",
+          orderNumber: order.orderNumber,
+          orderId: order._id,
           payment: result,
           url: result.providerResponse.authorization_url,
         });
@@ -124,6 +125,7 @@ export const PaymentController = {
         // Dataset status will be updated upon successful webhook verification
         return res.status(201).json({
           message: "Escrow payment initiated successfully",
+          orderNumber: order.orderNumber,
           requestId,
           payment: result,
           url: result.providerResponse.authorization_url,
@@ -137,7 +139,8 @@ export const PaymentController = {
     }
   },
 
-  verifyPayment: async (req, res) => {
+  handleWebhook: async (req, res) => {
+    logger.info(`Webhook received: ${req.method} ${req.originalUrl}`, { headers: req.headers });
     try {
       const hash = crypto
         .createHmac("sha512", ENV().paystack_secret_key)
@@ -145,14 +148,30 @@ export const PaymentController = {
         .digest("hex");
       if (hash !== req.headers["x-paystack-signature"])
         throw new Error("Invalid signature");
+        
       const event = req.body;
       if (event.event == "charge.success") {
         const reference = event.data.reference;
+        logger.info(`Processing Paystack success webhook for reference: ${reference}`);
         const payment = await PaymentService.verifyPayment(reference);
         return res.json(payment);
       }
       return res.sendStatus(200);
     } catch (err) {
+      logger.error(`Webhook error: ${err.message}`);
+      return res.status(400).json({ message: err.message });
+    }
+  },
+
+  verifyPayment: async (req, res) => {
+    try {
+      const { reference } = req.query;
+      if (!reference) throw new Error("Reference is required");
+      
+      const payment = await PaymentService.verifyPayment(reference);
+      return res.json(payment);
+    } catch (err) {
+      logger.error(`Manual verification error: ${err.message}`);
       return res.status(400).json({ message: err.message });
     }
   },

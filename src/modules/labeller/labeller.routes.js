@@ -2,11 +2,13 @@ import express from 'express';
 import { labellerController } from './labeller.controller.js';
 import authorize from '../../middlewares/authorization.middleware.js';
 import { protectRoute } from '../../middlewares/auth.middleware.js';
+import { attachLabeller } from '../../middlewares/labeller.middleware.js';
 
 const router = express.Router();
 
-// All labeller endpoints require auth
+// All labeller endpoints require auth and labeller context
 router.use(protectRoute);
+router.use(attachLabeller);
 
 
 

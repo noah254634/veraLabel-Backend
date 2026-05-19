@@ -28,6 +28,7 @@ export const marketplaceService = {
         {
           $project: {
             _id: 1,
+            orderNumber: 1,
             reference: 1,
             buyerId: 1,
             datasetId: 1,
@@ -51,28 +52,41 @@ export const marketplaceService = {
     const buyerObjectId = new mongoose.Types.ObjectId(buyerId);
 
 
-    // 1. Fetch all possible data assets for this buyer
-    const [customDatasets, allPurchases, marketplaceDatasets] = await Promise.all([
-      Dataset.find({ type: 'custom', buyerId: buyerObjectId }).sort({ createdAt: -1 }).lean(),
+    const [customDatasetsWithOrders, allPurchases, marketplaceDatasets] = await Promise.all([
+      Dataset.aggregate([
+        { $match: { type: 'custom', buyerId: buyerObjectId } },
+        { $sort: { createdAt: -1 } },
+        {
+          $lookup: {
+            from: 'orders',
+            localField: '_id',
+            foreignField: 'datasetId',
+            as: 'orderInfo'
+          }
+        },
+        {
+          $addFields: {
+            orderNumber: { $arrayElemAt: ['$orderInfo.orderNumber', 0] }
+          }
+        }
+      ]),
       Order.find({ buyerId: buyerObjectId }).sort({ createdAt: -1 }).lean(),
       Dataset.find({ type: 'marketplace', datasetLabeler: buyerObjectId }).sort({ createdAt: -1 }).lean()
     ]);
 
-    console.log(`[Sync] Found ${customDatasets.length} custom datasets, ${allPurchases.length} purchases, and ${marketplaceDatasets.length} marketplace datasets`);
+    console.log(`[Sync] Found ${customDatasetsWithOrders.length} custom datasets, ${allPurchases.length} purchases, and ${marketplaceDatasets.length} marketplace datasets`);
 
-    // 2. Build a map of already linked Dataset IDs to avoid duplicates
     const linkedDatasetIds = new Set();
     allPurchases.forEach(p => { if (p.datasetId) linkedDatasetIds.add(p.datasetId.toString()); });
 
-    // 3. Normalize Custom Datasets
-    const normalizedCustom = customDatasets.map(d => ({ ...d, entryType: 'custom' }));
+    const normalizedCustom = customDatasetsWithOrders.map(d => ({ ...d, entryType: 'custom' }));
 
-    // 4. Normalize Purchases
     const rawPurchases = await Promise.all(allPurchases.map(async (p) => {
       const dataset = await Dataset.findById(p.datasetId).lean();
       if (!dataset || dataset.type === 'custom') return null;
       return {
         _id: p._id,
+        orderNumber: p.orderNumber,
         datasetId: p.datasetId,
         createdAt: p.createdAt,
         domain: dataset?.datasetType || "Marketplace",
@@ -91,7 +105,6 @@ export const marketplaceService = {
     }));
     const normalizedPurchases = rawPurchases.filter(Boolean);
 
-    // 5. Normalize Marketplace Datasets
     const normalizedMarketplace = marketplaceDatasets
       .filter(d => !linkedDatasetIds.has(d._id.toString()))
       .map(d => ({
@@ -112,12 +125,10 @@ export const marketplaceService = {
         timeline: "N/A",
       }));
 
-    // 6. Combine and Sort everything
     const allDataAssets = [...normalizedCustom, ...normalizedPurchases, ...normalizedMarketplace].sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
     );
 
-    // 7. Calculate stats across EVERYTHING
     const stats = allDataAssets.reduce((acc, item) => {
       const budgetValue = parseFloat(String(item.budget || "0").replace(/[^0-9.]/g, "")) || 0;
       
@@ -130,7 +141,6 @@ export const marketplaceService = {
       return acc;
     }, { totalSpent: 0, activeAssets: 0, pendingSync: 0 });
 
-    // 8. Prepare the full active list for the UI
     const recentOrders = await Promise.all(allDataAssets.map(async (item) => {
       if (item.entryType !== 'custom') return item;
 
@@ -167,11 +177,6 @@ export const marketplaceService = {
       buyerDatasetOrders: recentOrders, 
       stats 
     };
-
-    return { 
-      buyerDatasetOrders: recentOrders, 
-      stats 
-    };
   },
   unpublishDataset: async (id) => {
     if (!id) throw new Error("Id not found");
@@ -189,14 +194,33 @@ export const marketplaceService = {
   createOrder: async (buyerId, datasetId, reference, datasetPrice) => {
     const buyerExists = await UserVera.findById(buyerId);
     if (!buyerExists) throw new Error("Unauthorized access");
-    const order = await Order.create({
-      reference,
-      buyerId: buyerId,
-      datasetId,
-      status: "pending",
-      totalPrice: datasetPrice,
-      reference,
-    });
+    
+    // Check if an order already exists for this dataset (e.g. from a custom request)
+    let order = await Order.findOne({ datasetId, buyerId });
+
+    if (order) {
+      // Heal legacy orders: generate an orderNumber if missing
+      if (!order.orderNumber) {
+        order.orderNumber = `ORD-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000)}`;
+      }
+      
+      // Update existing order with new payment reference and amount
+      order.reference = reference;
+      order.totalPrice = datasetPrice;
+      await order.save();
+    } else {
+      // Create new order for marketplace purchases
+      const orderNumber = `ORD-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000)}`;
+      order = await Order.create({
+        orderNumber,
+        reference,
+        buyerId: buyerId,
+        datasetId,
+        status: "pending",
+        totalPrice: datasetPrice,
+      });
+    }
+
     return order;
   },
   alldatasets: async () => {

@@ -3,25 +3,7 @@ import logger from "../../config/logger.js";
 import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-/**
- * R2 CONTENT FETCHER SERVICE
- * 
- * Used to fetch actual task content from R2 by reference.
- * Never store raw content in DB - always use R2 references.
- * 
- * Pattern:
- * - Task stored in DB has: r2_input_taskRef (path/reference)
- * - When you need content: r2ContentFetcher.fetchTaskContent(task.r2_input_taskRef)
- * - Use presigned URLs for temporary access without storing content
- */
-
 export const r2ContentFetcher = {
-  /**
-   * Fetch task content from R2 by reference
-   * @param {string} r2Ref - R2 reference path (e.g., 'projects/proj1/dataset1/task1.json')
-   * @param {object} options - { expiresIn, format }
-   * @returns {Promise<Buffer|string>} - Raw content from R2
-   */
   fetchTaskContent: async (r2Ref, options = {}) => {
     try {
       if (!r2Ref || typeof r2Ref !== 'string') {
@@ -63,12 +45,6 @@ export const r2ContentFetcher = {
     }
   },
 
-  /**
-   * Get presigned URL for temporary content access (cache in-memory, not in DB)
-   * @param {string} r2Ref - R2 reference path
-   * @param {number} expiresIn - Minutes until URL expires (default 24 hours)
-   * @returns {Promise<string>} - Presigned URL
-   */
   getPresignedUrl: async (r2Ref, expiresIn = 1440) => {
     try {
       if (!r2Ref || typeof r2Ref !== 'string') {
@@ -102,12 +78,6 @@ export const r2ContentFetcher = {
     }
   },
 
-  /**
-   * Parse task content and extract metadata (size, type, etc)
-   * WITHOUT storing raw content
-   * @param {string} r2Ref - R2 reference
-   * @returns {Promise<object>} - Metadata only
-   */
   getContentMetadata: async (r2Ref) => {
     try {
       if (!r2Ref || typeof r2Ref !== 'string') {
@@ -146,12 +116,6 @@ export const r2ContentFetcher = {
     }
   },
 
-  /**
-   * Batch fetch presigned URLs for multiple tasks (cache the URLs, not content)
-   * @param {Array<string>} r2Refs - Array of R2 references
-   * @param {number} expiresIn - Minutes until URLs expire
-   * @returns {Promise<Array>} - Array of { r2Ref, presignedUrl }
-   */
   batchGetPresignedUrls: async (r2Refs, expiresIn = 1440) => {
     try {
       if (!Array.isArray(r2Refs) || r2Refs.length === 0) {
@@ -196,23 +160,3 @@ export const r2ContentFetcher = {
     }
   }
 };
-
-/**
- * USAGE EXAMPLES:
- * 
- * // Get content when labeler needs to work on task
- * const content = await r2ContentFetcher.fetchTaskContent(task.r2_input_taskRef);
- * 
- * // Get presigned URL for frontend (don't store in DB)
- * const url = await r2ContentFetcher.getPresignedUrl(task.r2_input_taskRef);
- * // Use this URL temporarily, it expires after TTL
- * 
- * // Get metadata for validation
- * const meta = await r2ContentFetcher.getContentMetadata(task.r2_input_taskRef);
- * task.resultMetadata = { size: meta.size, hash: meta.hash, uploadedAt: new Date() };
- * 
- * // Batch fetch for UI display
- * const taskUrls = await r2ContentFetcher.batchGetPresignedUrls(
- *   task.map(t => t.r2_input_taskRef)
- * );
- */

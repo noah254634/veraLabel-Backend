@@ -35,6 +35,10 @@ const datasetSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    pricePerBatch: {
+      type: Number,
+      default: 0,
+    },
     datasetLabeler: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "UserVera",
@@ -205,6 +209,20 @@ const datasetSchema = new mongoose.Schema(
     canBeCancelled: {
       type: Boolean,
       default: true,
+    },
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high", "urgent"],
+      default: "medium",
+    },
+    maxLabellers: {
+      type: Number,
+      default: 1,
+    },
+    instructionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "DatasetInstruction",
+      required: false,
     },
   },
   {

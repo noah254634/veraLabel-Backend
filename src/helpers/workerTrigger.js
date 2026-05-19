@@ -1,14 +1,7 @@
 import crypto from 'crypto';
 import logger from '../config/logger.js';
 
-/**
- * Trigger the Cloudflare Worker to start dataset splitting
- * @param {string} r2Key - The R2 object key (path in bucket)
- * @param {string} projectId - Project identifier
- * @param {string} datasetId - Dataset identifier
- * @param {string} dataType - Data type: 'text', 'media', 'rlhf'
- * @returns {Promise<Object>} Worker response
- */
+
 export async function triggerWorker(r2Key, projectId, datasetId, dataType) {
   const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
   const internalSecret = process.env.INTERNAL_SECRET;

@@ -14,8 +14,8 @@ const connectDB = async () => {
       }
 
       const conn = await mongoose.connect(mongo_uri, {
-        serverSelectionTimeoutMS: 5000,  // 5 second timeout for initial connection
-        socketTimeoutMS: 45000,          // 45 second timeout for socket operations
+        serverSelectionTimeoutMS: 30000, // Increased to 30s for unstable networks
+        socketTimeoutMS: 45000,
         maxPoolSize: 10,
         minPoolSize: 5,
         retryWrites: true,

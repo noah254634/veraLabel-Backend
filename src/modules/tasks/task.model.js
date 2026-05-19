@@ -58,17 +58,22 @@ const taskSchema = new Schema({
     required: true
   },
 
+  batchId: {
+    type: Schema.Types.ObjectId,
+    ref: "Batch",
+    default: null
+  },
+
   // 2. ASSIGNMENT STATE
   isAssigned: {
     type: Boolean,
     default: false
   },
 
-  assignedTo: {
+  assignedTo: [{
     type: Schema.Types.ObjectId,
-    ref: "UserVera",
-    default: null
-  },
+    ref: "Labeller"
+  }],
 
   assignedAt: Date,
 

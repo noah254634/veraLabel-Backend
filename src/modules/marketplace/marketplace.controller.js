@@ -25,7 +25,6 @@ export const marketplaceController = {
   },
   createOrder: async (req, res) => {
     try {
-      console.log(req.body);
       const { datasetId, datasetPrice } = req.body;
       const buyerId = req.user._id;
       const response = await marketplaceService.createOrder(

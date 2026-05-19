@@ -26,10 +26,14 @@ router.get("/datasets/rejected",adminController.rejectedDatasets);
 router.get("/datasets/flagged",adminController.flaggedDatasets);           
 router.put("/datasets/:id/approve",adminController.approveDataset);
 router.put("/datasets/:id/reject",adminController.rejectDataset);
+router.put("/datasets/:id/status", adminController.updateDatasetStatus);
 router.put("/datasets/:id/flag",adminController.flagDataset);
 router.put("/datasets/:id/unflag",adminController.unflagDataset);
 router.delete("/datasets/:id",adminController.deleteDataset);
 router.put("/setDatasetprice/:id",adminController.updateDatasetPrice)
+router.put("/datasets/:id/batch-price", adminController.updateDatasetBatchPrice);
+router.put("/datasets/:id/priority", adminController.updateDatasetPriority);
+router.put("/datasets/:id/max-labellers", adminController.updateDatasetMaxLabellers);
 router.post("/datasets/unpublish/:id",adminController.unpublishDataset)
 router.post("/datasets/publish/:id",adminController.publishDataset)
 router.put("/users/:id/rate",adminController.rateUser);

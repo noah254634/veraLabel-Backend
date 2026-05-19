@@ -16,6 +16,7 @@ router.use("/labellers", labellerAnalyticsRouter);
 router.get("/users/registrations", notImplemented);   // per day/week/month
 router.get("/users/activity", notImplemented);        // DAU / MAU
 router.get("/users/retention", notImplemented);       // cohort analysis
+router.get("/datasets", analyticsController.datasetAnalytics);
 router.get("/datasets/summary", notImplemented);
 router.get("/datasets/submissions", notImplemented);
 router.get("/datasets/approval-rate", notImplemented);
@@ -24,6 +25,7 @@ router.get("/datasets/rejections", notImplemented);
 router.get("/annotations/summary", notImplemented);
 router.get("/annotations/time-spent", notImplemented);      // detect AI spam
 router.get("/annotations/quality-score", notImplemented);
+router.get("/revenue", analyticsController.revenueAnalytics);
 router.get("/revenue/summary", notImplemented);
 router.get("/revenue/daily", notImplemented);
 router.get("/revenue/monthly", notImplemented);

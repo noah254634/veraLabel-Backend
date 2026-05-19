@@ -27,7 +27,7 @@ const labellerSchema = new mongoose.Schema(
         enum: ['male', 'female', 'other'],
         default: 'other'
       },
-      age: Number,
+      dateOfBirth: Date,
       location: {
         country: String,
         region: String,

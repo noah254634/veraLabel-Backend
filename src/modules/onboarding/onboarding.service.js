@@ -3,62 +3,67 @@ import TrainingQuiz from "./model/onboarding.quizzes.js";
 import UserVera from "../users/user.model.js";
 import Labeller from "../labeller/labeller.model.js";
 import AssessmentAttempt from "./model/assessment.attempt.js";
+import { normalizeLabellerProfilePayload, populateLabellerUser } from "../labeller/labellerProfile.utils.js";
 export const onboardingService = {
-  createLabellerProfile: async (
-    userId,
-    age,
-    expertise,
-    skillTags,
-    gender,
-    location,
-    annotationExperience,
-    languages,
-  ) => {
-    if (!userId || !age || !expertise || !skillTags || !gender || !location)
+  createLabellerProfile: async (userId, payload = {}) => {
+    if (!userId) {
+      throw new Error("User ID is required");
+    }
+
+    const normalizedPayload = normalizeLabellerProfilePayload(payload);
+    const requiredFields = [
+      normalizedPayload.profile?.dateOfBirth,
+      normalizedPayload.profile?.gender,
+      normalizedPayload.profile?.location,
+    ];
+
+    if (requiredFields.some((field) => !field || (Array.isArray(field) && field.length === 0))) {
       throw new Error("All fields are required");
-    const newUser = await Labeller.create({
+    }
+
+    const existingLabeller = await Labeller.findOne({ userId });
+
+    if (existingLabeller) {
+      const updatedLabeller = await Labeller.findOneAndUpdate(
+        { userId },
+        { $set: normalizedPayload },
+        { new: true, runValidators: true },
+      );
+
+      return populateLabellerUser(updatedLabeller);
+    }
+
+    const newLabeller = await Labeller.create({
       userId,
-      languages,
-      age,
-      expertise,
-      skillTags,
-      gender,
-      location,
-      annotationExperience,
+      ...normalizedPayload,
     });
-    return newUser;
+
+    return populateLabellerUser(Labeller.findById(newLabeller._id));
   },
   getLabellerProfile: async (userId) => {
     if (!userId) throw new Error("User Id reuired");
-    const user = await Labeller.findOne({ userId });
+    const user = await populateLabellerUser(Labeller.findOne({ userId }));
     if (!user)
       throw new Error(
         "User not created,consider creating you labeller account",
       );
     return user;
   },
-  updateLabellerProfile: async (
-    userId,
-    languages,
-    age,
-    expertise,
-    skillTags,
-  ) => {
+  updateLabellerProfile: async (userId, payload = {}) => {
     if (!userId) throw new Error("User ID is required");
-    if (!Array.isArray(languages) || languages.length === 0)
-      throw new Error("At least one language is required");
-    if (!age) throw new Error("Age is required");
-    if (!expertise) throw new Error("Expertise is required");
-    if (!Array.isArray(skillTags) || skillTags.length === 0)
-      throw new Error("At least one skill tag is required");
+    const normalizedPayload = normalizeLabellerProfilePayload(payload);
+    if (Object.keys(normalizedPayload).length === 0) {
+      throw new Error("At least one field is required");
+    }
+
     const profile = await Labeller.findOne({ userId });
     if (!profile) throw new Error("Profile not found");
-    profile.languages = languages;
-    profile.age = age;
-    profile.expertise = expertise;
-    profile.skillTags = skillTags;
-    await profile.save();
-    return profile;
+    const updatedProfile = await Labeller.findOneAndUpdate(
+      { userId },
+      { $set: normalizedPayload },
+      { new: true, runValidators: true },
+    );
+    return populateLabellerUser(updatedProfile);
   },
   createTrainingMaterial: async (title, content, module, createdBy) => {
     if (!title || !content || !module || !createdBy)
@@ -219,4 +224,23 @@ export const onboardingService = {
   },
   gettingStarted: async () => {
   },
+  deleteLabellerProfile: async (userId) => {
+    if (!userId) throw new Error("User ID is required");
+
+    const deleted = await Labeller.findOneAndDelete({ userId });
+    if (!deleted) throw new Error("Labeller profile not found");
+
+    return { message: "Labeller profile deleted successfully" };
+  },
+  completeOnboarding: async (userId) => {
+    if (!userId) throw new Error("User ID is required");
+    const labeller = await Labeller.findOne({ userId });
+    if (!labeller) throw new Error("Labeller profile not found");
+    
+    labeller.isOnboarded = true;
+    labeller.tier = 'Bronze'; // Set initial tier after onboarding
+    await labeller.save();
+    
+    return labeller;
+  }
 };

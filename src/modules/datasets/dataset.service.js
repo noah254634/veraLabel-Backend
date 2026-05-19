@@ -66,8 +66,8 @@ export const datasetService = {
     return datasets;
   },
 
-  getAllDatasets: async () => {
-    return await Dataset.find();
+  getAllDatasets: async (filter = {}) => {
+    return await Dataset.find(filter);
   },
   getDatasetById: async (id) => {
     return await Dataset.findById(id);
@@ -161,15 +161,12 @@ export const datasetService = {
   },
 
   confirmUpload: async (r2Key, datasetId, dataType) => {
-    // Validate inputs
     if (!r2Key) throw new Error("r2Key is required");
     if (!datasetId) throw new Error("datasetId is required");
     if (!dataType) throw new Error("dataType is required");
 
-    // Step 1: Verify file exists in R2
     const fileMetadata = await verifyFileInR2(r2Key);
 
-    // Step 2: Update existing dataset (must already exist from datasetRequest)
     const dataset = await Dataset.findByIdAndUpdate(
       datasetId,
       {
@@ -179,14 +176,6 @@ export const datasetService = {
       },
       { new: true }
     );
-
-    if (dataset) {
-      // Update the Dataset status to 'processing' for the ingestion phase
-      await Dataset.findOneAndUpdate(
-        { _id: dataset._id },
-        { status: "processing" }
-      );
-    }
 
     if (!dataset) {
       throw new Error(`Dataset not found: ${datasetId}. Create dataset request first.`);
@@ -206,7 +195,17 @@ export const datasetService = {
       'rlhf': 'rlhf'
     };
 
-    const workerDataType = dataTypeMap[dataset.datasetFormat?.toLowerCase()] || 'text';
+    let workerDataType = dataTypeMap[dataset.datasetFormat?.toLowerCase()] || 'text';
+    
+    // Override with provided dataType if it matches a known type, or infer from domain
+    if (['rlhf', 'media', 'text'].includes(dataType?.toLowerCase())) {
+      workerDataType = dataType.toLowerCase();
+    } else {
+      const domainLower = (dataset.domain || dataset.datasetType || '').toLowerCase();
+      if (domainLower.includes('rlhf') || domainLower.includes('rfhlearning')) {
+        workerDataType = 'rlhf';
+      }
+    }
 
     // Step 3: Trigger worker to start splitting
     const projectId = dataset.datasetLabeler?.toString() || "unknown";

@@ -13,15 +13,33 @@ import reviewerRouter from "./modules/reviewer/reviewer.route.js";
 import { adminService } from "./modules/admin/admin.service.js";
 import marketplaceRouter from "./modules/marketplace/marketplace.route.js";
 import datasetRouter from "./modules/datasets/dataset.route.js";
+import instructionRouter from "./modules/datasets/instruction.route.js";
 import logger from "./config/logger.js";
 import onboardinRouter from "./modules/onboarding/onboarding.route.js";
 import { asyncHandler, AppError } from "./middlewares/errorHandler.middleware.js";
 import { geoMiddleware } from "./middlewares/geo.middleware.js";
-import reviewRouter from "./modules/reviewer/reviewer.route.js";
 import { createRateLimiter } from "./middlewares/rateLimit.middleware.js";
 import labellerRouter from "./modules/labeller/labeller.routes.js";
 import notificationRouter from "./modules/notifications/notification.route.js";
+import { analyzeSystemHealth } from "./helpers/healthCheck.js";
+
 const router=express.Router();
+
+// System Health & Latency Probe
+router.get("/ping", async (req, res) => {
+  try {
+    const health = await analyzeSystemHealth();
+    const statusCode = health.status === 'healthy' ? 200 : (health.status === 'degraded' ? 200 : 503);
+    res.status(statusCode).json(health);
+  } catch (error) {
+    logger.error('Health check failed', { error: error.message });
+    res.status(500).json({ 
+      status: 'error', 
+      message: 'System health check failed',
+      timestamp: Date.now() 
+    });
+  }
+});
 
 
 
@@ -37,8 +55,8 @@ router.put("/admin/promote-by-email/:email", asyncHandler(async (req, res) => {
 
 router.use("/labeller",protectRoute,checkisBlocked,labellerRouter);
 router.use("/marketplace",protectRoute,checkisBlocked,authorize("admin","buyer"),marketplaceRouter)
-router.use("/review",protectRoute,checkisBlocked,reviewRouter)
 router.use("/datasets",datasetRouter);
+router.use("/instructions", instructionRouter);
 router.use("/auth",authRouter);
 router.use("/payments",paymentRouter)
 router.use("/users",userRouter);

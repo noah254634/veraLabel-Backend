@@ -33,10 +33,12 @@ export const errorHandler = (err, req, res, next) => {
   
   // Log request info (without sensitive data)
   logger.error({
+    message: err.message,
     path: req.path,
     method: req.method,
     ip: req.ip || req.connection.remoteAddress,
     timestamp: new Date().toISOString(),
+    stack: err.stack,
   });
 
   // Sanitize and send response

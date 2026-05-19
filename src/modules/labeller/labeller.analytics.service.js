@@ -1,32 +1,55 @@
 import Labeller from './labeller.model.js';
+import UserVera from '../users/user.model.js';
 
 export const labellerAnalyticsService = {
   getTotalLabellersCount: async () => {
-    const total = await Labeller.countDocuments();
-    return total;
+    // Check both specialized profiles and core users to ensure accurate dashboard counts
+    const [profileCount, userCount] = await Promise.all([
+      Labeller.countDocuments(),
+      UserVera.countDocuments({ role: 'labeler' })
+    ]);
+    return Math.max(profileCount, userCount);
   },
 
   getActiveLabellerCount: async () => {
-    const active = await Labeller.countDocuments({ status: 'active' });
-    return active;
+    // A labeller is 'active' if their profile is active OR if they are a verified labeler user
+    const [activeProfiles, activeUsers] = await Promise.all([
+      Labeller.countDocuments({ status: 'active' }),
+      UserVera.countDocuments({ role: 'labeler', isActive: true })
+    ]);
+    return Math.max(activeProfiles, activeUsers);
   },
 
   getLabellersByStatus: async () => {
-    const statuses = await Labeller.aggregate([
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 }
-        }
-      }
+    // Get statuses from the Labeller profile collection
+    const profileStatuses = await Labeller.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } }
     ]);
 
-    const total = statuses.reduce((sum, s) => sum + s.count, 0);
+    // Get basic status from UserVera for any "labelers" who might be missing profiles
+    const userStatuses = await UserVera.aggregate([
+      { $match: { role: 'labeler' } },
+      { $group: { _id: { $cond: ["$isActive", "active", "inactive"] }, count: { $sum: 1 } } }
+    ]);
 
-    return statuses.map(s => ({
-      status: s._id,
+    // Merge logic: Take the max for each status to avoid double counting but catch orphans
+    const statusMap = {};
+    [...profileStatuses, ...userStatuses].forEach(s => {
+      const status = s._id || 'unknown';
+      statusMap[status] = Math.max(statusMap[status] || 0, s.count);
+    });
+
+    const finalStatuses = Object.entries(statusMap).map(([status, count]) => ({
+      status,
+      count
+    }));
+
+    const total = finalStatuses.reduce((sum, s) => sum + s.count, 0);
+
+    return finalStatuses.map(s => ({
+      status: s.status,
       count: s.count,
-      percentage: ((s.count / total) * 100).toFixed(2)
+      percentage: total > 0 ? ((s.count / total) * 100).toFixed(2) : "0.00"
     }));
   },
 
