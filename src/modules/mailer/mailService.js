@@ -4,6 +4,7 @@ import sendEmail from "./mailer.js";
 import UserVera from "../users/user.model.js";
 import ResetPassword from "../auth/resetPassword.model.js";
 import { generateResetToken } from "./tokens.js";
+import crypto from "crypto";
 
 const mailService = {
     verifyEmailAccount: async (email, token) => {
@@ -36,21 +37,23 @@ const mailService = {
   },
   sendResetPasswordEmail: async (user) => {
     const usertoken = await generateResetToken(user);
-    logger.info(`The token is: ${usertoken}`)
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${usertoken}`;
-    const html =templates.resetPasswordTemplate(user.name || user.username || "there", resetLink);
+    logger.info(`The token is: ${usertoken}`);
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    const resetLink = `${frontendUrl}/forgot-password`;
+    const html = templates.resetPasswordTemplate(user.name || user.username || "there", usertoken, resetLink);
     await sendEmail({
       to: user.email,
-      subject: "Password Reset Request",
+      subject: "VeraLabel Password Reset Code",
       html,
     });
+    const hashedToken = crypto.createHash("sha256").update(usertoken).digest("hex");
     const user_resetting_password = await ResetPassword.findOneAndUpdate(
       { email: user.email },
       {
         userId: user._id,
-        token: usertoken,
+        token: hashedToken,
         email: user.email,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       },
       {
         new: true,
@@ -62,16 +65,37 @@ const mailService = {
     return user_resetting_password;
   },
   sendVerificationEmail: async (email, username) => {
-    const verificationLink = `${process.env.FRONTEND_URL}/verifyEmail?email=${email}`;
     logger.info(`Sending verification email to ${email} for user ${username}`);
-    const user=await UserVera.findOne({email});
-    if(!user) throw new Error("User not found");
-    const html = templates.mailVerificationTemplate(username, verificationLink);
+    const user = await UserVera.findOne({ email });
+    if (!user) throw new Error("User not found");
+
+    // 1. Generate 6-digit verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // 2. Store in ResetPassword collection
+    await ResetPassword.findOneAndUpdate(
+      { email: user.email },
+      {
+        userId: user._id,
+        token: verificationCode,
+        email: user.email,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    // 3. Send email with the verification code
+    const html = templates.mailVerificationTemplate(username || "User", verificationCode);
     await sendEmail({
       to: email,
-      subject: "Verify Your Email Address",
+      subject: "Verify Your VeraLabel Account",
       html,
     });
+    logger.info(`Verification email sent to ${email} with code ${verificationCode}`);
   },
   sendPaymentConfirmationEmail: async (username,amount,datasetName) => {
     logger.info(`Sending payment confirmation email to ${username}`);

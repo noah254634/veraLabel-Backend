@@ -3,7 +3,7 @@ const Schema=mongoose.Schema;
 const DatasetSchema=new Schema({
     buyerId:{
     type:mongoose.Schema.Types.ObjectId,
-    ref:"UserVera",
+    ref:"Buyer",
     required:true
   },
    domain:{

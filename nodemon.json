@@ -4,8 +4,8 @@
   ],
   "ext": "js,json",
   "ignore": [
-    "src/logs/*",
+    "logs/*",
+    "src/access.log",
     "*.test.js"
-  ],
-  "exec": "node src/server.js"
+  ]
 }

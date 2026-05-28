@@ -18,8 +18,14 @@ export const geoMiddleware = (req, res, next) => {
   // NEW: Bypass for Cloudflare Worker (identified by Handshake or Internal Secret)
   const handshakeHeader = req.headers['handshake-url'];
   const authHeader = req.headers['authorization'];
-  const expectedHandshake = process.env.HANDSHAKE_URL;
-  const expectedToken = process.env.TOKEN_VALUE;
+  const expectedHandshake =
+    process.env.HANDSHAKE_URL ||
+    process.env.BACKEND_HANDSHAKE_URL ||
+    process.env.BACKEND_HANDSHAKE;
+  const expectedToken =
+    process.env.TOKEN_VALUE ||
+    process.env.INTERNAL_SECRET ||
+    process.env.BACKEND_TOKEN;
 
   if (
     (handshakeHeader && handshakeHeader === expectedHandshake) ||

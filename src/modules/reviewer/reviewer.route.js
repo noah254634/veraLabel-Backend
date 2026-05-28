@@ -12,6 +12,7 @@ router.put('/rate/:taskId', reviewerController.rateTask);
 router.put('/feedback/:taskId', reviewerController.submitFeedback);
 router.get('/pending', reviewerController.getPendingReviewTasks);
 router.get('/completed', reviewerController.getCompletedReviews);
+router.get('/stats', reviewerController.getReviewerStats);
 router.get('/task/:taskId', reviewerController.getTaskForReview);
 router.put('/approve/:taskId', reviewerController.approveSubmission);
 router.put('/reject/:taskId', reviewerController.rejectSubmission);

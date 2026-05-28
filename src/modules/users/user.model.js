@@ -113,7 +113,23 @@ const userSchema=new mongoose.Schema({
       type: String,
       default: null,
     },
+    passwordResetAttempts: {
+      type: Number,
+      default: 0,
+    },
+    lastPasswordResetAttemptAt: {
+      type: Date,
+      default: null,
+    },
+    resetPasswordToken: {
+      type: String,
+      default: null,
+    },
+    resetPasswordExpire: {
+      type: Date,
+      default: null,
+    },
   },{
     timestamps:true
-})
+  })
 export default mongoose.model("UserVera",userSchema);

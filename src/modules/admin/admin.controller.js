@@ -1,326 +1,205 @@
 import logger from "../../config/logger.js";
 import { adminService } from "./admin.service.js";
+import { asyncHandler, AppError } from "../../middlewares/errorHandler.middleware.js";
+import ResponseHandler from "../../helpers/responseHandler.js";
+
 export const adminController = {
-  verifyUser: async (req, res) => {
-    try {
-      logger.info("Verifying user");
-      const { id } = req.params;
-      const user = await adminService.verifyUserById(id);
-      return res.json(user);
-    }catch(err){
-      logger.error(`Error verifying user: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  unverifyUser: async (req, res) => {
-    try {
-      logger.info("Unverifying user");
-      const { id } = req.params;
-      const user = await adminService.unverifyUserById(id);
-      return res.json(user);
-    } catch (err) {
-      logger.error(`Error unverifying user: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  deleteUser: async (req, res) => {
-    logger.info("Deleting user");
-    try {
-      const { id } = req.params;
-      const user = await adminService.deleteUserById(id);
-      return res.json(user);
-    } catch (err) {
-      logger.error(`Error deleting user: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-
-
-  },
-  rateUser:async(req,res)=>{
-    logger.info("Rating User")
-    const {id}=req.params;
-    const {rate}=req.body;
-    const rating=parseInt(rate);
-    const user=await adminService.rateUser(id,rating);
-    return user
-  },
-  unpublishDataset: async (req, res) => {
-    try {
-      logger.info("Unpublishing dataset");
-      const { id } = req.params;
-      const dataset = await adminService.unpublishDatasetById(id);
-      return res.json(dataset);
-      } catch (err) {
-      logger.error(`Error unpublishing dataset: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-publishDataset: async (req, res) => {
-  try {
-    logger.info("Publishing dataset");
+  verifyUser: asyncHandler(async (req, res) => {
     const { id } = req.params;
-    logger.info(`Publishing dataset with id: ${id}`);
+    const user = await adminService.verifyUserById(id);
+    return ResponseHandler.success(res, { user }, "User verified successfully");
+  }),
+
+  unverifyUser: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = await adminService.unverifyUserById(id);
+    return ResponseHandler.success(res, { user }, "User unverified successfully");
+  }),
+
+  deleteUser: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = await adminService.deleteUserById(id);
+    return ResponseHandler.success(res, { user }, "User deleted successfully");
+  }),
+
+  rateUser: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { rate } = req.body;
+    if (!rate) throw new AppError("Rate is required", 400);
+    const user = await adminService.rateUser(id, parseInt(rate));
+    return ResponseHandler.success(res, { user }, "User rated successfully");
+  }),
+
+  unpublishDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const dataset = await adminService.unpublishDatasetById(id);
+    return ResponseHandler.success(res, { dataset }, "Dataset unpublished successfully");
+  }),
+
+  publishDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
     const dataset = await adminService.publishDatasetById(id);
-    return res.json(dataset);
-  }catch (err) {
-    logger.error(`Error publishing dataset: ${err.message}`);
-    return res.status(400).json({ message: err.message });
-  }
-},
-  updateDatasetPrice: async (req, res) => {
-    try {
-      logger.info("Updating dataset price");
-      const { id } = req.params;
-      const { price } = req.body;
-      if (!price) throw new Error("Price not found");
-      const newPrice = parseInt(price);
-      const dataset = await adminService.updateDatasetPrice(id, newPrice);
-      return res.json(dataset);
-    } catch (err) {
-      logger.error(`Error updating dataset price: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  updateDatasetBatchPrice: async (req, res) => {
-    try {
-      logger.info("Updating dataset batch price");
-      const { id } = req.params;
-      const { pricePerBatch } = req.body;
-      if (pricePerBatch === undefined) throw new Error("Batch price not found");
-      const dataset = await adminService.updateDatasetBatchPrice(id, parseFloat(pricePerBatch));
-      return res.json(dataset);
-    } catch (err) {
-      logger.error(`Error updating batch price: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  pendingDatasets: async (req, res) => {
-    try {
-      logger.info("Fetching pending datasets");
+    return ResponseHandler.success(res, { dataset }, "Dataset published successfully");
+  }),
 
-      const datasets = await adminService.pendingDatasets();
-      return res.json(datasets);
-    } catch (err) {
-      logger.error(`Error fetching pending datasets: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  approvedDatasets: async (req, res) => {
-    try {
-      logger.info("Fetching approved datasets");
-      const datasets = await adminService.approvedDatasets();
-      return res.json(datasets);
-    } catch (err) {
-      logger.error(`Error fetching approved datasets: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  rejectedDatasets: async (req, res) => {
-    try {
-      const datasets = await adminService.rejectedDatasets();
-      return res.json(datasets);
-    } catch (err) {
-      logger.error(`Error fetching rejected datasets: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  flaggedDatasets: async (req, res) => {
-    try {
-      logger.info("Fetching flagged datasets");
-      const datasets = await adminService.flaggedDatasets();
-      return res.json(datasets);
-    } catch (err) {
-      logger.error(`Error fetching flagged datasets: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
+  updateDatasetPrice: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { price } = req.body;
+    if (!price) throw new AppError("Price not found", 400);
+    const dataset = await adminService.updateDatasetPrice(id, parseInt(price));
+    return ResponseHandler.success(res, { dataset }, "Dataset price updated");
+  }),
 
-  banUser: async (req, res) => {
-    try {
-      logger.info("Banning user");
-      const { id } = req.params;
-      const { reason } = req.body;
-      const user = await adminService.banUserById(id, reason);
-      return res.json(user);
-    } catch (err) {
-      logger.error(`Error banning user: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  promoteToReviewer: async (req, res) => {
-    try {
-      logger.info("Promoting user to reviewer");
-      const {reason}=req.body;
-      logger.info(`Promoting user with id: ${req.params.id} to reviewer for reason: ${reason}`);
-      const { id } = req.params;
-      const user = await adminService.promoteToReviewerById(id);
-      return res.json(user);
-    } catch (err) {
-      logger.error(`Error promoting user to reviewer: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
+  updateDatasetBatchPrice: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { pricePerBatch } = req.body;
+    if (pricePerBatch === undefined) throw new AppError("Batch price not found", 400);
+    const dataset = await adminService.updateDatasetBatchPrice(id, parseFloat(pricePerBatch));
+    return ResponseHandler.success(res, { dataset }, "Batch price updated");
+  }),
 
-  promoteUser: async (req, res) => {
-    try {
-      logger.info("Promoting user");
-      const { id } = req.params;
-      const user = await adminService.promoteUserById(id);
-      return res.json({
-        success: true,
-        user,
-        message: "User promoted successfully",
-      });
-    } catch (err) {
-      logger.error(`Error promoting user: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  
-  demoteUser: async (req, res) => {
-    try {
-      logger.info(`Demoting user with id: ${req.params.id}`);
-      const { id } = req.params;
-      const user = await adminService.demoteUserById(id);
-      return res.json(user);
-    } catch (err) {
-      logger.error(`Error demoting user: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  blockUser: async (req, res) => {
-    try {
-      logger.info("Blocking user");
-      const { id } = req.params;
-      const { reason } = req.body;
-      const user = await adminService.blockUserById(id, reason);
-      return res.json(user);
-    } catch (err) {
-      logger.error(`Error blocking user: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  unblockUser: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const user = await adminService.unblockUserById(id);
-      return res.json(user);
-    } catch (err) {
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  suspendUser: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { reason } = req.body;
-      const user = await adminService.suspendUserById(id, reason);
-      return res.json(user);
-    } catch (err) {
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  unsuspendUser: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const user = await adminService.unsuspendUserById(id);
-      return res.json(user);
-    } catch (err) {
-      return res.status(400).json({ message: err.message });
-    }
-  },
+  pendingDatasets: asyncHandler(async (req, res) => {
+    const datasets = await adminService.pendingDatasets();
+    return ResponseHandler.success(res, { datasets }, "Pending datasets fetched");
+  }),
 
-  flagDataset: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { reason } = req.body;
-      const dataset = await adminService.flagDatasetById(id, reason);
-      return res.json(dataset);
-    } catch (err) {
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  unflagDataset: async (req, res) => {
-    try {
-      logger.info("Unflagging dataset");
-      const { id } = req.params;
-      const dataset = await adminService.unflagDatasetById(id);
-      return res.json(dataset);
-    } catch (err) {
-      logger.error(`Error unflagging dataset: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  deleteDataset: async (req, res) => {
-    try {
-      logger.info("Deleting dataset");
-      const { id } = req.params;
-      const dataset = await adminService.deleteDatasetById(id);
-      return res.json(dataset);
-    } catch (err) {
-      logger.error(`Error deleting dataset: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  approveDataset: async (req, res) => {
-    try {
-      logger.info("Approving dataset");
-      const { id } = req.params;
-      const dataset = await adminService.approveDatasetById(id);
-      return res.json(dataset);
-    } catch (err) {
-      logger.error(`Error approving dataset: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  rejectDataset: async (req, res) => {
-    try {
-      logger.info("Rejecting dataset");
-      const { id } = req.params;
-      const dataset = await adminService.rejectDatasetById(id);
-      return res.json(dataset);
-    } catch (err) {
-      logger.error(`Error rejecting dataset: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  updateDatasetStatus: async (req, res) => {
-    try {
-      logger.info("Overriding dataset status");
-      const { id } = req.params;
-      const { status } = req.body;
-      if (!status) throw new Error("Status is required");
-      const dataset = await adminService.updateDatasetStatus(id, status);
-      return res.json(dataset);
-    } catch (err) {
-      logger.error(`Error overriding status: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  updateDatasetPriority: async (req, res) => {
-    try {
-      logger.info("Updating dataset priority");
-      const { id } = req.params;
-      const { priority } = req.body;
-      if (!priority) throw new Error("Priority is required");
-      const dataset = await adminService.updateDatasetPriority(id, priority);
-      return res.json(dataset);
-    } catch (err) {
-      logger.error(`Error updating priority: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  updateDatasetMaxLabellers: async (req, res) => {
-    try {
-      logger.info("Updating dataset max labellers");
-      const { id } = req.params;
-      const { maxLabellers } = req.body;
-      if (!maxLabellers) throw new Error("Max labellers is required");
-      const parsedMax = parseInt(maxLabellers, 10);
-      const dataset = await adminService.updateDatasetMaxLabellers(id, parsedMax);
-      return res.json(dataset);
-    } catch (err) {
-      logger.error(`Error updating max labellers: ${err.message}`);
-      return res.status(400).json({ message: err.message });
-    }
-  },
+  approvedDatasets: asyncHandler(async (req, res) => {
+    const datasets = await adminService.approvedDatasets();
+    return ResponseHandler.success(res, { datasets }, "Approved datasets fetched");
+  }),
+
+  rejectedDatasets: asyncHandler(async (req, res) => {
+    const datasets = await adminService.rejectedDatasets();
+    return ResponseHandler.success(res, { datasets }, "Rejected datasets fetched");
+  }),
+
+  flaggedDatasets: asyncHandler(async (req, res) => {
+    const datasets = await adminService.flaggedDatasets();
+    return ResponseHandler.success(res, { datasets }, "Flagged datasets fetched");
+  }),
+
+  banUser: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const user = await adminService.banUserById(id, reason);
+    return ResponseHandler.success(res, { user }, "User banned successfully");
+  }),
+
+  promoteToReviewer: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = await adminService.promoteToReviewerById(id);
+    return ResponseHandler.success(res, { user }, "User promoted to reviewer");
+  }),
+
+  promoteUser: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = await adminService.promoteUserById(id);
+    return ResponseHandler.success(res, { user }, "User promoted to admin");
+  }),
+
+  demoteUser: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = await adminService.demoteUserById(id);
+    return ResponseHandler.success(res, { user }, "User demoted successfully");
+  }),
+
+  blockUser: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const user = await adminService.blockUserById(id, reason);
+    return ResponseHandler.success(res, { user }, "User blocked successfully");
+  }),
+
+  unblockUser: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = await adminService.unblockUserById(id);
+    return ResponseHandler.success(res, { user }, "User unblocked successfully");
+  }),
+
+  suspendUser: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const user = await adminService.suspendUserById(id, reason);
+    return ResponseHandler.success(res, { user }, "User suspended successfully");
+  }),
+
+  unsuspendUser: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const user = await adminService.unsuspendUserById(id);
+    return ResponseHandler.success(res, { user }, "User unsuspended successfully");
+  }),
+
+  flagDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const dataset = await adminService.flagDatasetById(id, reason);
+    return ResponseHandler.success(res, { dataset }, "Dataset flagged");
+  }),
+
+  unflagDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const dataset = await adminService.unflagDatasetById(id);
+    return ResponseHandler.success(res, { dataset }, "Dataset unflagged");
+  }),
+
+  deleteDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const dataset = await adminService.deleteDatasetById(id);
+    return ResponseHandler.success(res, { dataset }, "Dataset deleted");
+  }),
+
+  approveDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const dataset = await adminService.approveDatasetById(id);
+    return ResponseHandler.success(res, { dataset }, "Dataset approved");
+  }),
+
+  rejectDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const dataset = await adminService.rejectDatasetById(id);
+    return ResponseHandler.success(res, { dataset }, "Dataset rejected");
+  }),
+
+  updateDatasetStatus: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!status) throw new AppError("Status is required", 400);
+    const dataset = await adminService.updateDatasetStatus(id, status);
+    return ResponseHandler.success(res, { dataset }, "Dataset status updated");
+  }),
+
+  updateDatasetPriority: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { priority } = req.body;
+    if (!priority) throw new AppError("Priority is required", 400);
+    const dataset = await adminService.updateDatasetPriority(id, priority);
+    return ResponseHandler.success(res, { dataset }, "Dataset priority updated");
+  }),
+
+  updateDatasetMaxLabellers: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { maxLabellers } = req.body;
+    if (!maxLabellers) throw new AppError("Max labellers is required", 400);
+    const dataset = await adminService.updateDatasetMaxLabellers(id, parseInt(maxLabellers, 10));
+    return ResponseHandler.success(res, { dataset }, "Max labellers updated");
+  }),
+
+  getBuyers: asyncHandler(async (req, res) => {
+    const { status } = req.query;
+    const buyers = await adminService.getBuyers(status);
+    return ResponseHandler.success(res, { buyers }, "Buyers fetched successfully");
+  }),
+
+  approveBuyer: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const buyer = await adminService.approveBuyer(id);
+    return ResponseHandler.success(res, { buyer }, "Buyer approved successfully");
+  }),
+
+  rejectBuyer: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { adminNotes } = req.body;
+    const buyer = await adminService.rejectBuyer(id, adminNotes);
+    return ResponseHandler.success(res, { buyer }, "Buyer rejected successfully");
+  }),
 };

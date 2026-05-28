@@ -20,6 +20,7 @@ import { asyncHandler, AppError } from "./middlewares/errorHandler.middleware.js
 import { geoMiddleware } from "./middlewares/geo.middleware.js";
 import { createRateLimiter } from "./middlewares/rateLimit.middleware.js";
 import labellerRouter from "./modules/labeller/labeller.routes.js";
+import buyerRouter from "./modules/buyer/buyer.route.js";
 import notificationRouter from "./modules/notifications/notification.route.js";
 import { analyzeSystemHealth } from "./helpers/healthCheck.js";
 
@@ -54,6 +55,7 @@ router.put("/admin/promote-by-email/:email", asyncHandler(async (req, res) => {
 }));
 
 router.use("/labeller",protectRoute,checkisBlocked,labellerRouter);
+router.use("/buyer", buyerRouter);
 router.use("/marketplace",protectRoute,checkisBlocked,authorize("admin","buyer"),marketplaceRouter)
 router.use("/datasets",datasetRouter);
 router.use("/instructions", instructionRouter);

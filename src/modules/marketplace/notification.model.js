@@ -2,8 +2,8 @@ import mongoose from "mongoose";
 
 const NotificationSchema = new mongoose.Schema({
   buyerId: {
-    type: ObjectId,
-    ref: "User",
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Buyer",
     required: true
   },
 
@@ -15,7 +15,7 @@ const NotificationSchema = new mongoose.Schema({
   title: String,
   message: String,
 
-  relatedEntityId: ObjectId, // e.g., orderId
+  relatedEntityId: mongoose.Schema.Types.ObjectId, // e.g., orderId
   relatedEntityType: String, // "Order", "Dataset"
 
   isRead: {

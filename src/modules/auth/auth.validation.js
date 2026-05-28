@@ -2,8 +2,7 @@ export const validateSignup=({email,name,password,role})=>{
     if(!email || !name || !password) throw new Error("All fields are required");
     const emailRegex=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if(!emailRegex.test(email)) throw new Error("Invalid email format");
-    const passwordRegex=/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-    if(!passwordRegex.test(password)) throw new Error("Invalid password format");
+    if (password.length < 8) throw new Error("Password must be at least 8 characters long");
     if(!role) throw new Error("Role is required")
         const roleMap={
             admin:"admin",

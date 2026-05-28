@@ -7,6 +7,7 @@ import logger from "../../config/logger.js";
 import { asyncHandler, AppError } from "../../middlewares/errorHandler.middleware.js";
 import ResponseHandler from "../../helpers/responseHandler.js";
 import { validateRequiredFields } from "../../helpers/validationHelpers.js";
+import UserVera from "../users/user.model.js";
 
 export const authController={
   getMe: asyncHandler(async (req,res)=>{
@@ -21,10 +22,8 @@ export const authController={
     const user = await authService.createUser(dto);
     if (!user) throw new AppError("Failed to create user", 400);
     
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
-    setAuthCookies(res, accessToken, refreshToken);
-    return ResponseHandler.created(res, { user }, "User created successfully");
+    await mailService.sendVerificationEmail(user.email, user.name);
+    return ResponseHandler.created(res, { user: { email: user.email, name: user.name, role: user.role } }, "User created successfully. Verification code sent to email.");
   }),
 
   login: asyncHandler(async (req, res) => {
@@ -32,6 +31,10 @@ export const authController={
     logger.debug({ email: dto.email }, "Login attempt");
     const user=await authService.loginUser(dto);
     if (!user) throw new AppError("Invalid credentials", 401);
+    
+    if (!user.isVerified) {
+      throw new AppError("Email not verified", 403);
+    }
     
     const userResponse = user.toObject ? user.toObject() : user;
     delete userResponse.password;
@@ -80,5 +83,16 @@ export const authController={
     
     const result=await authService.resetPassword(email,token,password);
     return ResponseHandler.success(res, result, "Password reset successfully");
+  }),
+
+  resendVerification: asyncHandler(async (req, res) => {
+    validateRequiredFields(req.body, ['email']);
+    const { email } = req.body;
+    const user = await UserVera.findOne({ email });
+    if (!user) throw new AppError("User not found", 404);
+    if (user.isVerified) throw new AppError("Email already verified", 400);
+
+    await mailService.sendVerificationEmail(email, user.name);
+    return ResponseHandler.success(res, null, "Verification code resent successfully");
   })
 }

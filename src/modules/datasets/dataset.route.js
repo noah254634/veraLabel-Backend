@@ -1,12 +1,13 @@
 import express from "express";
 const router=express.Router();
 import { protectRoute } from "../../middlewares/auth.middleware.js";
+import { attachBuyer } from "../buyer/buyer.middleware.js";
 import { Upload } from "./datasets.multer.js";
 import { prepareDatasetVersion } from "../../middlewares/version.middleware.js";
 import {datasetController} from "./dataset.controller.js";
 router.use(protectRoute)
 // Create a dataset request (buyer side)
-router.post("/createDataset", datasetController.createDataset);
+router.post("/createDataset", attachBuyer, datasetController.createDataset);
 
 // Get all datasets
 router.get("/allDatasets", datasetController.getAllDatasets);

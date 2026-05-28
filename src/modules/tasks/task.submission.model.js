@@ -1,7 +1,4 @@
 import mongoose from "mongoose";
-import Task from "./task.model.js";
-import Dataset from "../datasets/dataset.model.js";
-import User from "../users/user.model.js";
 
 const SubmissionSchema = new mongoose.Schema({
   
@@ -27,18 +24,18 @@ const SubmissionSchema = new mongoose.Schema({
     index: true
   },
 
-  /*// Batch relationship
+  // Batch relationship
   batchId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Batch",
-    required: true,
+    required: false,
     index: true
-  },*/
+  },
 
   // Labeller
   submittedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
+    ref: "Labeller",
     required: true,
     index: true
   },
@@ -60,6 +57,13 @@ const SubmissionSchema = new mongoose.Schema({
       "needs_revision"
     ],
     default: "submitted",
+    index: true
+  },
+
+  // Quality control score
+  verificationScore: {
+    type: Number,
+    default: null,
     index: true
   },
 

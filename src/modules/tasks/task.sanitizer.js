@@ -32,9 +32,12 @@ export const taskSanitizer = {
   sanitizeTask: (task) => {
     const r2Ref = task.key || task.r2_url;
 
+    const contentType = task.contentType || task.taskType || "text";
+
     return {
       r2_input_taskRef: r2Ref,
-      taskType: task.taskType,
+      contentType,
+      taskType: contentType,
       taskId: task.taskId || null,
       split: task.split,
       taskName: task.name || task.taskId || `task-${Date.now()}`,

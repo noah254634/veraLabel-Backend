@@ -1,245 +1,206 @@
 import logger from "../../config/logger.js";
 import { ENV } from "../../config/env.js";
 import { taskService } from "./task.service.js";
+import { asyncHandler, AppError } from "../../middlewares/errorHandler.middleware.js";
+import ResponseHandler from "../../helpers/responseHandler.js";
+
 export const taskController = {
-  getBatches:async(req,res)=>{
-    try {
-      const batches = await taskService.getBatches();
-      return res.status(200).json(batches);
-    } catch (err) {
-      logger.error(`an error occurred while getting batches:${err.message}`);
-      return res.status(500).json({ message: err.message });
-    }
-  },
-  createTasks: async (req, res) => {
-    try {
-      logger.info({
-        method: req.method,
-        url: req.url,
-        taskCount: Array.isArray(req.body?.tasks) ? req.body.tasks.length : 0,
-      }, "Task creation request received");
-      const url = req.headers["handshake-url"];
-      const { datasetId, projectId, tasks, isLastBatch } = req.body;
-      const finalBatch = isLastBatch === true;
+  getBatches: asyncHandler(async (req, res) => {
+    const batches = await taskService.getBatches();
+    return ResponseHandler.success(res, { batches }, "Batches fetched");
+  }),
 
-      if (!projectId) return res.status(400).json({ message: "project id is required" });
-      if (!datasetId) return res.status(400).json({ message: "datasetId is required" });
-      if (!Array.isArray(tasks) || tasks.length === 0) {
-        return res.status(400).json({
-          message: "task files are required",
-          receivedTasksType: Array.isArray(tasks) ? "array" : typeof tasks,
-          receivedTasksLength: Array.isArray(tasks) ? tasks.length : undefined,
-        });
-      }
-      if (isLastBatch !== undefined && typeof isLastBatch !== "boolean") {
-        return res.status(400).json({ message: "isLastBatch must be boolean" });
-      }
+  createTasks: asyncHandler(async (req, res) => {
+    const url = req.headers["handshake-url"];
+    const authHeader = req.headers.authorization;
+    const { datasetId, projectId, tasks, isLastBatch } = req.body;
+    const finalBatch = isLastBatch === true;
 
-      const configuredHandshakeUrl = ENV().handshake_url;
-      if (configuredHandshakeUrl && url !== configuredHandshakeUrl) {
-        return res.status(401).json({ message: "Invalid url" });
-      }
+    if (!projectId) throw new AppError("project id is required", 400);
+    if (!datasetId) throw new AppError("datasetId is required", 400);
+    if (!Array.isArray(tasks) || tasks.length === 0)
+      throw new AppError("task files are required", 400);
+    if (isLastBatch !== undefined && typeof isLastBatch !== "boolean")
+      throw new AppError("isLastBatch must be boolean", 400);
 
-      const response = await taskService.createTask({ datasetId, projectId, tasks, isLastBatch: finalBatch });
-      logger.info(`Tasks created successfully for project ${projectId}, dataset ${datasetId}. Count: ${response.count}`);
-      logger.info(`Task creation response: ${JSON.stringify(response)}`);
-      
-      // Return 201 even if some items failed - we still successfully registered some tasks
-      // The failedItems count indicates how many items in this batch failed (malformed, etc.)
-      const statusCode = response.failedItems > 0 ? 202 : 201;  // 202 = Accepted (partial success)
-      return res.status(statusCode).json(response);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      const errorStack = err instanceof Error ? err.stack : 'No stack';
-      logger.error({
-        error: errorMsg,
-        stack: errorStack,
-        requestBody: req.body,
-        projectId: req.body?.projectId,
-        datasetId: req.body?.datasetId,
-        taskCount: Array.isArray(req.body?.tasks) ? req.body.tasks.length : 0,
-        taskSample: Array.isArray(req.body?.tasks) ? req.body.tasks.slice(0, 2) : null,
-      }, 'Task creation failed');
-      return res.status(500).json({ 
-        message: errorMsg,
-        type: err?.constructor?.name || 'Unknown'
-      });
-    }
-  },
-  getTasks: async (req, res) => {
-    try {
-      const parsedPage = Number.parseInt(req.query.page, 10);
-      const parsedLimit = Number.parseInt(req.query.limit, 10);
+    const configuredHandshakeUrl =
+      ENV().handshake_url ||
+      process.env.BACKEND_HANDSHAKE_URL ||
+      process.env.BACKEND_HANDSHAKE;
+    const expectedToken =
+      process.env.TOKEN_VALUE ||
+      process.env.INTERNAL_SECRET ||
+      process.env.BACKEND_TOKEN;
+    const handshakeMatches = !configuredHandshakeUrl || url === configuredHandshakeUrl;
+    const tokenMatches = !!expectedToken && authHeader === `Bearer ${expectedToken}`;
 
-      const page = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
-      const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 10;
+    if (!handshakeMatches && !tokenMatches)
+      throw new AppError("Invalid url", 401);
 
-      const response = await taskService.getTasks({
-        page,
-        limit,
-        status: req.query.status,
-        split: req.query.split,
-        taskType: req.query.taskType,
-      });
+    const response = await taskService.createTask({ datasetId, projectId, tasks, isLastBatch: finalBatch });
+    logger.info(`Tasks created for project ${projectId}, dataset ${datasetId}. Count: ${response.count}`);
 
-      return res.status(200).json(response);
-    } catch (err) {
-      logger.error(err.message);
-      return res.status(500).json({ message: err.message });
-    }
-  },
-  getTaskById: async (req, res) => {
-    try {
-      logger.info("Gettiing task by id");
-      const id = req.params.id;
-      if (!id) throw new Error("Task id is required");
-      const response = await taskService.getTaskById(id);
-      return res.status(200).json(response);
-    } catch (err) {
-      logger.error(`an error occurred while getting task by id:${err.message}`);
-      return res.status(500).json({ message: err.message });
-    }
-  },
-  assignTask: async (req, res) => {
-    try {
-      const taskId = req.params.id;
-      const labellerId = req.body.labellerId || req.body.labellerUserId || req.body.userId;
+    const statusCode = response.failedItems > 0 ? 202 : 201;
+    return res.status(statusCode).json(response);
+  }),
 
-      if (!taskId) throw new Error("Task id is required");
-      if (!labellerId) throw new Error("Labeller id is required");
+  getTasks: asyncHandler(async (req, res) => {
+    const parsedPage = Number.parseInt(req.query.page, 10);
+    const parsedLimit = Number.parseInt(req.query.limit, 10);
+    const page = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limit = Number.isInteger(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 10;
 
-      if (!req.user) throw new Error("Authentication required");
+    const response = await taskService.getTasks({
+      page, limit,
+      status: req.query.status,
+      split: req.query.split,
+      taskType: req.query.taskType,
+    });
+    return ResponseHandler.success(res, response, "Tasks fetched");
+  }),
 
-      const response = await taskService.assignTask(taskId, labellerId);
-      return res.status(200).json(response);
-    } catch (err) {
-      logger.error(`an error occurred while assigning task: ${err.message}`);
-      return res.status(500).json({ message: err.message });
-    }
-  },
-  returnTaskToPool: async (req, res) => {
-    try {
-      const id = req.params.id;
-      if (!id) throw new Error("Task id is required");
-      const response = await taskService.returnTaskToPool(id);
-      return res.status(200).json(response);
-    } catch (err) {
-      logger.error(`an error occurred while returning task to pool:${err.message}`);
-      return res.status(500).json({ message: err.message });
-    }
-  },
-  submitTask: async (req, res) => {
-    try {
-      const taskId = req.params.id;
-      const { batchId } = req.body;
-      
-      if (!taskId) throw new Error("Task id is required");
-      if (!batchId) throw new Error("Batch id is required for verification");
-      
-      const labellerId = req.labeller?._id;
-      if (!labellerId) throw new Error("Labeller profile is required");
-      if (req.user.role !== "labeler")
-        throw new Error("Only labelers can submit tasks");
-        
-      const response = await taskService.submitTask(taskId, labellerId, batchId);
-      return res.status(200).json(response);
-    } catch (err) {
-      logger.error(`an error occurred while updating task status: ${err.message}`);
-      return res.status(500).json({ message: err.message });
-    }
-  },
-  verifyTask: async (req, res) => {
-    try {
-      const taskId = req.params.id;
-      if (!taskId) throw new Error("Task id is required");
-      const userId = req.user._id;
-      if (req.user.role !== "admin" && req.user.role !== "reviewer")
-        throw new Error("Only admins and reviewers can verify tasks");
-      if (!userId) throw new Error("User id is required");
-      const response = await taskService.verifyTask(taskId, userId);
-      return res.status(200).json(response);
-    } catch (err) {
-      logger.error(`an error occurred while verifying task: ${err.message}`);
-      return res.status(500).json({ message: err.message });
-    }
-  },
-  rejectTask: async (req, res) => {
-    try {
-      logger.info("Rejecting task");
-      const taskId = req.params.id;
-      const { reason } = req.body;
-      if (!taskId) throw new Error("Task id is required");
-      if (!reason) throw new Error("Reason is required");
-      const response = await taskService.rejectTask(taskId, reason);
-      return res.status(200).json(response);
-    } catch (err) {
-      logger.error(`an error occurred while rejecting task: ${err.message}`);
-      return res.status(500).json({ message: err.message });
-    }
-  },
-  deleteTask: async (req, res) => {
-    try {
-      logger.info("Deleting task");
-      const id = req.params.id;
-      if (!id) throw new Error("Task id is required");
-      const response = await taskService.deleteTask(id);
-      return res.status(200).json(response);
-    } catch (err) {
-      logger.error(`an error occurred while deleting task: ${err.message}`);
-      return res.status(500).json({ message: err.message });
-    }
-  },
-  reviewTask: async (req, res) => {
-    try {
-      const taskId = req.params.id;
-      const { score } = req.body;
-      const userId = req.user?._id;
+  getTaskById: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!id) throw new AppError("Task id is required", 400);
+    const response = await taskService.getTaskById(id);
+    return ResponseHandler.success(res, response, "Task fetched");
+  }),
 
-      if (!taskId) throw new Error("Task id is required");
-      if (score === undefined) throw new Error("Score is required");
-      
-      const response = await taskService.reviewTask(taskId, userId, score);
-      return res.status(200).json({ message: "Task reviewed successfully", data: response });
-    } catch (err) {
-      logger.error(`an error occurred in review task: ${err.message}`);
-      return res.status(500).json({ error: err.message });
-    }
-  },
-  revokeTask: async (req, res) => {
-    try {
-      const { taskId } = req.body;
-      if (!taskId) throw new Error("Task id is required");
+  assignTask: asyncHandler(async (req, res) => {
+    const taskId = req.params.id;
+    const labellerId = req.body.labellerId || req.body.labellerUserId || req.body.userId;
+    if (!taskId) throw new AppError("Task id is required", 400);
+    if (!labellerId) throw new AppError("Labeller id is required", 400);
+    if (!req.user) throw new AppError("Authentication required", 401);
 
-      const response = await taskService.revokeTask(taskId);
-      return res.status(200).json(response);
-    } catch (err) {
-      return res.status(500).json({ message: err.message });
-    }
-  },
+    const response = await taskService.assignTask(taskId, labellerId);
+    return ResponseHandler.success(res, response, "Task assigned");
+  }),
+
+  returnTaskToPool: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!id) throw new AppError("Task id is required", 400);
+    const response = await taskService.returnTaskToPool(id);
+    return ResponseHandler.success(res, response, "Task returned to pool");
+  }),
+
+  submitTask: asyncHandler(async (req, res) => {
+    const taskId = req.params.id;
+    const { batchId } = req.body;
+    if (!taskId) throw new AppError("Task id is required", 400);
+    if (!batchId) throw new AppError("Batch id is required", 400);
+
+    const labellerId = req.labeller?._id;
+    if (!labellerId) throw new AppError("Labeller profile is required", 403);
+    if (req.user.role !== "labeler") throw new AppError("Only labelers can submit tasks", 403);
+
+    const response = await taskService.submitTask(taskId, labellerId, batchId);
+    return ResponseHandler.success(res, response, "Task submitted");
+  }),
+
+  generateSubmissionUrl: asyncHandler(async (req, res) => {
+    const taskId = req.params.id;
+    if (!taskId) throw new AppError("Task id is required", 400);
+
+    const labellerId = req.labeller?._id;
+    if (!labellerId) throw new AppError("Labeller profile is required", 403);
+    if (req.user.role !== "labeler") throw new AppError("Only labelers can submit tasks", 403);
+
+    const response = await taskService.generateSubmissionUrl(taskId, labellerId);
+    return ResponseHandler.success(res, response, "Submission URL generated");
+  }),
+
+  verifyTask: asyncHandler(async (req, res) => {
+    const taskId = req.params.id;
+    if (!taskId) throw new AppError("Task id is required", 400);
+    if (req.user.role !== "admin" && req.user.role !== "reviewer")
+      throw new AppError("Only admins and reviewers can verify tasks", 403);
+
+    const response = await taskService.verifyTask(taskId, req.user._id);
+    return ResponseHandler.success(res, response, "Task verified");
+  }),
+
+  rejectTask: asyncHandler(async (req, res) => {
+    const taskId = req.params.id;
+    const { reason } = req.body;
+    if (!taskId) throw new AppError("Task id is required", 400);
+    if (!reason) throw new AppError("Reason is required", 400);
+    const response = await taskService.rejectTask(taskId, reason);
+    return ResponseHandler.success(res, response, "Task rejected");
+  }),
+
+  deleteTask: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!id) throw new AppError("Task id is required", 400);
+    const response = await taskService.deleteTask(id);
+    return ResponseHandler.success(res, response, "Task deleted");
+  }),
+
+  reviewTask: asyncHandler(async (req, res) => {
+    const taskId = req.params.id;
+    const { score } = req.body;
+    if (!taskId) throw new AppError("Task id is required", 400);
+    if (score === undefined) throw new AppError("Score is required", 400);
+    const response = await taskService.reviewTask(taskId, req.user?._id, score);
+    return ResponseHandler.success(res, response, "Task reviewed successfully");
+  }),
+
+  revokeTask: asyncHandler(async (req, res) => {
+    const { taskId } = req.body;
+    if (!taskId) throw new AppError("Task id is required", 400);
+    const response = await taskService.revokeTask(taskId);
+    return ResponseHandler.success(res, response, "Task revoked");
+  }),
+
+  revokeDatasetBatches: asyncHandler(async (req, res) => {
+    const { datasetId } = req.body;
+    if (!datasetId) throw new AppError("datasetId is required", 400);
+    const result = await taskService.revokeDatasetBatches(datasetId);
+    return ResponseHandler.success(
+      res,
+      result,
+      `${result.revoked} batch(es) revoked and renewed — ${result.tasksReset} task(s) returned to pool`
+    );
+  }),
+
+  revokeExpiredBatchesGlobal: asyncHandler(async (req, res) => {
+    const result = await taskService.revokeExpiredBatches();
+    return ResponseHandler.success(
+      res,
+      result,
+      `Global sweep complete: ${result.revoked} expired batch(es) revoked, ${result.tasksReset ?? 0} task(s) reset`
+    );
+  }),
+
+  flagTask: asyncHandler(async (req, res) => {
+    const taskId = req.params.id;
+    const { reason, detail } = req.body;
+    if (!taskId) throw new AppError("Task id is required", 400);
+    if (!reason) throw new AppError("Flag reason is required", 400);
+
+    const labellerId = req.labeller?._id;
+    if (!labellerId) throw new AppError("Labeller profile is required", 403);
+
+    const response = await taskService.flagTask(taskId, labellerId, req.user?._id, reason, detail);
+    return ResponseHandler.success(res, response, "Task flagged for admin review");
+  }),
+
   autoAssignTask: async () => {},
-  claimBatch: async (req, res) => {
-    try {
-      const { datasetId } = req.body;
-      const labellerId = req.labeller?._id;
 
-      if (!datasetId) throw new Error("datasetId is required");
-      if (!labellerId) throw new Error("Labeller profile is required");
-      
-      const batch = await taskService.claimBatch(datasetId, labellerId);
-      return res.status(200).json(batch);
-    } catch (err) {
-      logger.error(`Error claiming batch: ${err.message}`);
-      return res.status(500).json({ message: err.message });
-    }
-  },
-  getMyActiveBatch: async (req, res) => {
-    try {
-      const labellerId = req.labeller?._id;
-      if (!labellerId) throw new Error("Labeller profile is required");
-      const batch = await taskService.getMyActiveBatch(labellerId);
-      return res.status(200).json(batch);
-    } catch (err) {
-      return res.status(200).json(null); // Return null if no active batch
-    }
-  }
+
+  claimBatch: asyncHandler(async (req, res) => {
+    const { datasetId } = req.body;
+    const labellerId = req.labeller?._id;
+    if (!datasetId) throw new AppError("datasetId is required", 400);
+    if (!labellerId) throw new AppError("Labeller profile is required", 403);
+    const batch = await taskService.claimBatch(datasetId, labellerId);
+    return ResponseHandler.success(res, batch, "Batch claimed");
+  }),
+
+  getMyActiveBatch: asyncHandler(async (req, res) => {
+    const labellerId = req.labeller?._id;
+    if (!labellerId) throw new AppError("Labeller profile is required", 403);
+    const batch = await taskService.getMyActiveBatch(labellerId);
+    return ResponseHandler.success(res, batch ?? null, "Active batch fetched");
+  }),
 };

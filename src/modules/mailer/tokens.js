@@ -25,8 +25,8 @@ export default verifyResetToken;
 
 
 export const generateResetToken = async (user) => {
-  // 1. Create random token
-  const resetToken = crypto.randomBytes(32).toString("hex");
+  // 1. Create a 6-digit random numeric code
+  const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
 
   // 2. Hash it before saving to DB for security
   const hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex");

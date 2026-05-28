@@ -71,4 +71,74 @@ export const NotificationController = {
       return res.status(400).json({ message: err.message });
     }
   },
+
+  /**
+   * GET /api/v1/notifications
+   * Authenticated — retrieve notifications for the logged-in user.
+   */
+  getUserNotifications: async (req, res) => {
+    try {
+      const result = await NotificationService.getNotifications(req.user._id);
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(400).json({ message: err.message });
+    }
+  },
+
+  /**
+   * PATCH /api/v1/notifications/:id/read
+   * Authenticated — mark a specific notification as read.
+   */
+  markRead: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = await NotificationService.markRead(req.user._id, id);
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(400).json({ message: err.message });
+    }
+  },
+
+  /**
+   * PATCH /api/v1/notifications/read-all
+   * Authenticated — mark all user notifications as read.
+   */
+  markAllRead: async (req, res) => {
+    try {
+      const result = await NotificationService.markAllRead(req.user._id);
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(400).json({ message: err.message });
+    }
+  },
+
+  /**
+   * DELETE /api/v1/notifications
+   * Authenticated — clear all notifications of the user.
+   */
+  clearAll: async (req, res) => {
+    try {
+      const result = await NotificationService.clearAll(req.user._id);
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(400).json({ message: err.message });
+    }
+  },
+
+  /**
+   * POST /api/v1/notifications/send-email
+   * Admin only — send a custom formatted email to a recipient.
+   */
+  sendEmail: async (req, res) => {
+    try {
+      const { to, subject, html } = req.body;
+      if (!to || !subject || !html) {
+        return res.status(400).json({ message: "to, subject and html are required" });
+      }
+      const result = await NotificationService.sendCustomEmail(to, subject, html);
+      return res.status(200).json(result);
+    } catch (err) {
+      return res.status(400).json({ message: err.message });
+    }
+  },
 };

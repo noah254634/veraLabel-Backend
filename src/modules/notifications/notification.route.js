@@ -12,6 +12,34 @@ notificationRouter.post(
   NotificationController.registerToken
 );
 
+// Get notifications for the authenticated user
+notificationRouter.get(
+  "/",
+  protectRoute,
+  NotificationController.getUserNotifications
+);
+
+// Mark all notifications as read (Must be defined before "/:id/read" to prevent wildcard conflicts)
+notificationRouter.patch(
+  "/read-all",
+  protectRoute,
+  NotificationController.markAllRead
+);
+
+// Mark a specific notification as read
+notificationRouter.patch(
+  "/:id/read",
+  protectRoute,
+  NotificationController.markRead
+);
+
+// Clear all notifications for the authenticated user
+notificationRouter.delete(
+  "/",
+  protectRoute,
+  NotificationController.clearAll
+);
+
 // Admin-only: send to a single user
 notificationRouter.post(
   "/send",
@@ -34,6 +62,14 @@ notificationRouter.post(
   protectRoute,
   authorize("admin", "superadmin"),
   NotificationController.broadcast
+);
+
+// Admin-only: send a custom formatted email
+notificationRouter.post(
+  "/send-email",
+  protectRoute,
+  authorize("admin", "superadmin"),
+  NotificationController.sendEmail
 );
 
 export default notificationRouter;

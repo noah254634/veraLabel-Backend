@@ -3,6 +3,7 @@ import { protectRoute } from '../../../middlewares/auth.middleware.js'
 import { PaymentController } from '../controllers/payment.controller.js'
 import { checkisBlocked } from '../../../middlewares/block.middleware.js'
 import authorize from '../../../middlewares/authorization.middleware.js'
+import { attachBuyer } from '../../buyer/buyer.middleware.js'
 
 const router = express.Router()
 
@@ -30,7 +31,7 @@ router.get("/success/:reference", PaymentController.success)
  * @desc    Initialize a payment transaction for a dataset purchase or escrow
  * @access  Private (Buyer Only)
  */
-router.post('/create', PaymentController.createPayment)
+router.post('/create', attachBuyer, PaymentController.createPayment)
 
 /**
  * @route   GET /api/v1/payments/verify/verify

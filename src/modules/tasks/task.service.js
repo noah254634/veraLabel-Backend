@@ -3,50 +3,62 @@ import UserVera from "../users/user.model.js";
 import Dataset from "../datasets/dataset.model.js";
 import Invoice from "../datasets/invoice.model.js";
 import Labeller from "../labeller/labeller.model.js";
+import Submission from "./task.submission.model.js";
 import { r2ContentFetcher } from "./r2.contentFetcher.js";
 import mongoose from "mongoose";
 import { invoiceService } from "../../helpers/priceCalculator.js";
 import logger from "../../config/logger.js";
 import Batch from "./task.batch.model.js";
+import { PutObjectCommand, HeadObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { r2 } from "../../config/r2Upload.js";
+import { normalizeContentType, isLegacyRlhfTaskType } from "./taskContentType.js";
 
-const normalizeTaskType = (task = {}) => {
+/** @deprecated — use normalizeContentType */
+const normalizeTaskType = (task = {}, dataset = null) => normalizeContentType(task, dataset);
+
+const normalizeTaskTypeForInvoice = (contentTypeOrLegacy, labellingMethod) => {
   try {
-    const rawType = String(task.taskType || task.type || "").trim().toLowerCase();
+    if (labellingMethod === "rlhf") return "rlhf";
 
-    if (["text", "audio", "video", "rfhlearning", "image"].includes(rawType)) {
-      return rawType;
-    }
-
-    if (["rlhf", "rflhf"].includes(rawType)) {
-      return "rfhlearning";
-    }
-
-    const contentType = String(task.contentType || "").toLowerCase();
-    if (contentType.startsWith("text/") || contentType.includes("json")) return "text";
-    if (contentType.startsWith("image/")) return "image";
-    if (contentType.startsWith("audio/")) return "audio";
-    if (contentType.startsWith("video/")) return "video";
-
-    return "text";
-  } catch (error) {
-    logger.warn('Error normalizing task type', { error: error.message, task });
-    return "text";
-  }
-};
-
-const normalizeTaskTypeForInvoice = (taskType) => {
-  try {
-    const normalizedType = String(taskType || "").trim().toLowerCase();
-
-    if (["rlhf", "rflhf", "rfhlearning"].includes(normalizedType)) return "rlhf";
+    const normalizedType = String(contentTypeOrLegacy || "").trim().toLowerCase();
+    if (isLegacyRlhfTaskType(normalizedType)) return "rlhf";
     if (normalizedType === "image") return "images";
     if (normalizedType === "video") return "videos";
 
     return normalizedType || "text";
   } catch (error) {
-    logger.warn('Error normalizing invoice task type', { error: error.message, taskType });
+    logger.warn('Error normalizing invoice task type', { error: error.message, contentTypeOrLegacy });
     return "text";
   }
+};
+
+const enrichBatchWithDataset = async (batch) => {
+  const plain = batch?.toObject ? batch.toObject() : { ...batch };
+  if (!plain?.datasetId) return plain;
+
+  const dataset = await Dataset.findById(plain.datasetId)
+    .select("labellingMethod contentType domain")
+    .lean();
+
+  const labellingMethod = dataset?.labellingMethod || "annotation";
+  const datasetContentType = dataset?.contentType || "text";
+
+  plain.labellingMethod = labellingMethod;
+  plain.datasetContentType = datasetContentType;
+
+  if (Array.isArray(plain.tasks)) {
+    plain.tasks = plain.tasks.map((t) => {
+      const task = t?.toObject ? t.toObject() : { ...t };
+      return {
+        ...task,
+        contentType: task.contentType || normalizeContentType(task, dataset),
+        labellingMethod,
+      };
+    });
+  }
+
+  return plain;
 };
 
 const normalizeSplit = (split) => {
@@ -78,6 +90,79 @@ const resolveLabellerDocument = async (identifier) => {
   return Labeller.findOne({ userId: identifierString });
 };
 
+const streamToString = async (stream) => {
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf-8");
+};
+
+const isValidNormalizedBox = (box) => {
+  if (!box || typeof box !== "object") return false;
+  const keys = ["x", "y", "w", "h"];
+  for (const key of keys) {
+    const value = Number(box[key]);
+    if (!Number.isFinite(value)) return false;
+  }
+  const x = Number(box.x);
+  const y = Number(box.y);
+  const w = Number(box.w);
+  const h = Number(box.h);
+  const label = String(box.label || "").trim();
+  return (
+    x >= 0 &&
+    y >= 0 &&
+    w > 0 &&
+    h > 0 &&
+    x <= 100 &&
+    y <= 100 &&
+    x + w <= 100 &&
+    y + h <= 100 &&
+    label.length > 0
+  );
+};
+
+const validateAnnotationPayload = (annotation) => {
+  if (!annotation || typeof annotation !== "object") {
+    throw new Error("Invalid annotation payload: expected JSON object.");
+  }
+  const { boundingBoxes } = annotation;
+  if (boundingBoxes == null) return;
+  if (!Array.isArray(boundingBoxes)) {
+    throw new Error("Invalid annotation payload: 'boundingBoxes' must be an array.");
+  }
+  if (boundingBoxes.length === 0) {
+    throw new Error("Invalid annotation payload: 'boundingBoxes' cannot be empty.");
+  }
+  const hasInvalidBox = boundingBoxes.some((box) => !isValidNormalizedBox(box));
+  if (hasInvalidBox) {
+    throw new Error("Invalid annotation payload: one or more bounding boxes are malformed.");
+  }
+};
+
+const normalizeIncomingTask = (task, index) => {
+  if (typeof task === 'string') {
+    try {
+      const parsedTask = JSON.parse(task);
+      if (parsedTask && typeof parsedTask === 'object' && !Array.isArray(parsedTask)) {
+        return parsedTask;
+      }
+    } catch (error) {
+      logger.warn('Failed to parse stringified task payload', {
+        index,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (task && typeof task === 'object' && !Array.isArray(task)) {
+    return task;
+  }
+
+  return null;
+};
+
 const updateDatasetRecordsAndPrice = async ({ datasetId, datasetRef }) => {
   try {
     if (!datasetId || !datasetRef) {
@@ -91,10 +176,12 @@ const updateDatasetRecordsAndPrice = async ({ datasetId, datasetRef }) => {
       ]
     });
 
-    let taskTypeForPricing = 'text';
-    const sampleTask = await Task.findOne({ datasetId: datasetId }).select('taskType').lean();
-    if (sampleTask) {
-      taskTypeForPricing = normalizeTaskTypeForInvoice(sampleTask.taskType);
+    const datasetMeta = await Dataset.findById(datasetId).select("labellingMethod contentType").lean();
+    let taskTypeForPricing = "text";
+    const sampleTask = await Task.findOne({ datasetId }).select("contentType taskType").lean();
+    if (sampleTask || datasetMeta) {
+      const modality = sampleTask?.contentType || sampleTask?.taskType;
+      taskTypeForPricing = normalizeTaskTypeForInvoice(modality, datasetMeta?.labellingMethod);
     }
     
     let calculatedPrice = 0;
@@ -154,6 +241,82 @@ const updateDatasetRecordsAndPrice = async ({ datasetId, datasetRef }) => {
     throw error;
   }
 };
+
+const checkExistingBatchAssignment = async (datasetId, labellerId) => {
+  const batch = await Batch.findOne({
+    datasetId,
+    assignedTo: labellerId,
+    status: 'in_progress'
+  }).populate('tasks');
+  
+  if (!batch) return null;
+
+  const labeller = await Labeller.findById(labellerId);
+  if (!labeller) return null;
+
+  const count = await Submission.countDocuments({
+    taskId: { $in: batch.tasks.map(t => t._id) },
+    submittedBy: labeller._id
+  });
+
+  if (count >= batch.totalTasks) {
+    return null;
+  }
+
+  return batch;
+};
+
+const findAndLockAvailableBatch = async (datasetId, labellerId) => {
+  return Batch.findOneAndUpdate(
+    {
+      datasetId,
+      status: { $in: ['available', 'in_progress'] },
+      assignedTo: { $ne: labellerId },
+      $expr: {
+        $lt: [
+          { $size: { $ifNull: ["$assignedTo", []] } },
+          { $ifNull: ["$maxLabellers", 1] }
+        ]
+      }
+    },
+    {
+      $set: {
+        status: 'in_progress',
+        assignedAt: new Date(),
+        expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000) // 4 hour TTL
+      },
+      $addToSet: { assignedTo: labellerId }
+    },
+    { new: true }
+  ).populate('tasks');
+};
+
+const assignBatchTasksToLabeller = async (batch, labellerId) => {
+  const taskIds = batch.tasks.filter(t => t).map(t => t._id || t);
+  if (taskIds.length === 0) return;
+
+  await Task.updateMany(
+    { _id: { $in: taskIds } },
+    {
+      $set: {
+        isAssigned: true,
+        assignedAt: new Date(),
+        status: 'in_progress'
+      },
+      $addToSet: { assignedTo: labellerId }
+    }
+  );
+
+  // Add the tasks to the Labeller profile and increment totalTasksAssigned
+  await Labeller.updateOne(
+    { _id: labellerId },
+    {
+      $addToSet: { currentAssignedTasks: { $each: taskIds } },
+      $inc: { 'performance.totalTasksAssigned': taskIds.length }
+    }
+  );
+};
+
 export const taskService = {
 getBatches: async () => {
   const batches=await Batch.find();
@@ -181,32 +344,40 @@ getBatches: async () => {
       });
 
       const datasetRef = `projects/${projectId}/${datasetId}`;
+      const datasetDoc = await Dataset.findById(datasetId)
+        .select("labellingMethod contentType domain")
+        .lean();
 
       const taskEntries = tasks.map((task, index) => {
+        const normalizedTask = normalizeIncomingTask(task, index);
+        if (!normalizedTask) {
           throw new Error(`Invalid task at index ${index}: task must be an object`);
         }
-      )
-        const r2Ref = task.key || task.r2_url;
+
+        const r2Ref = normalizedTask.key || normalizedTask.r2_url || normalizedTask.r2Key || normalizedTask.r2_input_taskRef;
         if (!r2Ref) {
           throw new Error(`Invalid task payload at index ${index}: missing 'key' or 'r2_url'`);
         }
+        const contentType = normalizeContentType(normalizedTask, datasetDoc);
         return {
           r2_datasetUrl: datasetRef,
           r2_input_taskRef: r2Ref,
           datasetId: datasetId,
-          taskType: normalizeTaskType(task),
-          taskName: task.name || task.taskId || `task-${index + 1}`,
-          taskId: task.taskId || null,
-          split: normalizeSplit(task.split),
+          contentType,
+          taskType: contentType,
+          taskName: normalizedTask.name || normalizedTask.taskId || `task-${index + 1}`,
+          taskId: normalizedTask.taskId || null,
+          split: normalizeSplit(normalizedTask.split),
           status: "pending",
           isAssigned: false,
-          _uniqueKey: task.taskId || r2Ref,
+          _uniqueKey: normalizedTask.taskId || r2Ref,
         };
-      
+      });
 
       logger.debug('Task entries prepared', {
         datasetRef,
-        taskTypes: [...new Set(taskEntries.map(t => t.taskType))],
+        contentTypes: [...new Set(taskEntries.map((t) => t.contentType))],
+        labellingMethod: datasetDoc?.labellingMethod,
       });
       const refsToCheck = taskEntries.map(t => t.r2_input_taskRef).filter(Boolean);
       const taskIdsToCheck = taskEntries.map(t => t.taskId).filter(Boolean);
@@ -326,7 +497,10 @@ getBatches: async () => {
           $or: [{ datasetId }, { r2_datasetUrl: datasetRef }]
         });
 
-        const invoiceTaskType = normalizeTaskTypeForInvoice(taskEntries[0]?.taskType);
+        const invoiceTaskType = normalizeTaskTypeForInvoice(
+          taskEntries[0]?.contentType || taskEntries[0]?.taskType,
+          datasetDoc?.labellingMethod
+        );
         try {
           invoice = await invoiceService.generateInvoice(invoiceTaskType, totalTasksInDataset);
           await Dataset.findByIdAndUpdate(
@@ -417,8 +591,11 @@ getBatches: async () => {
 
       if (taskType && typeof taskType === 'string') {
         const normalizedType = String(taskType).trim().toLowerCase();
-        if (['text', 'audio', 'video', 'rfhlearning', 'image'].includes(normalizedType)) {
-          filters.taskType = normalizedType;
+        if (['text', 'audio', 'video', 'image', 'code', 'document', 'rfhlearning'].includes(normalizedType)) {
+          filters.$or = [
+            { contentType: normalizedType },
+            { taskType: normalizedType },
+          ];
         }
       }
 
@@ -491,13 +668,25 @@ getBatches: async () => {
         throw new Error(`Task with ID ${id} not found`);
       }
       const taskR2Url = task.r2_input_taskRef;
-      const taskBuffer = await r2ContentFetcher.fetchTaskContent(taskR2Url);
+      const contentType = task.contentType || task.taskType || 'text';
       let taskObject;
-      try {
-        taskObject = JSON.parse(taskBuffer.toString('utf-8'));
-      } catch (parseError) {
-        logger.warn('Could not parse task content as JSON, returning raw content', { taskId: id });
-        taskObject = taskBuffer.toString('utf-8');
+
+      if (['image', 'audio', 'video'].includes(contentType)) {
+        try {
+          const presignedUrl = await r2ContentFetcher.getPresignedUrl(taskR2Url);
+          taskObject = { url: presignedUrl };
+        } catch (presignError) {
+          logger.warn('Could not generate presigned URL for media task', { taskId: id, error: presignError.message });
+          taskObject = null;
+        }
+      } else {
+        const taskBuffer = await r2ContentFetcher.fetchTaskContent(taskR2Url);
+        try {
+          taskObject = JSON.parse(taskBuffer.toString('utf-8'));
+        } catch (parseError) {
+          logger.warn('Could not parse task content as JSON, returning raw content', { taskId: id });
+          taskObject = taskBuffer.toString('utf-8');
+        }
       }
 
       logger.debug('Task fetched successfully', { taskId: id, status: task.status });
@@ -511,7 +700,7 @@ getBatches: async () => {
     }
   },
 
-  returnTaskToPool: async (id) => {
+  returnTaskToPool: async (id, { decrementAssignedCount = false } = {}) => {
     try {
       if (!id || typeof id !== 'string') {
         throw new Error('Valid task ID is required');
@@ -541,16 +730,33 @@ getBatches: async () => {
 
       await task.save();
       if (previousAssignees.length > 0) {
-        await Labeller.updateMany(
-          { _id: { $in: previousAssignees } },
-          {
-            $pull: { currentAssignedTasks: id }
+        if (decrementAssignedCount) {
+          for (const labellerId of previousAssignees) {
+            const labeller = await Labeller.findById(labellerId);
+            if (labeller) {
+              const newTotalAssigned = Math.max(0, (labeller.performance.totalTasksAssigned || 0) - 1);
+              await Labeller.updateOne(
+                { _id: labellerId },
+                {
+                  $pull: { currentAssignedTasks: id },
+                  $set: { "performance.totalTasksAssigned": newTotalAssigned }
+                }
+              );
+            }
           }
-        );
+        } else {
+          await Labeller.updateMany(
+            { _id: { $in: previousAssignees } },
+            {
+              $pull: { currentAssignedTasks: id }
+            }
+          );
+        }
 
         logger.info('Removed task from labeller profiles', {
           taskId: id,
-          labellerIds: previousAssignees
+          labellerIds: previousAssignees,
+          decremented: decrementAssignedCount
         });
       }
 
@@ -660,37 +866,97 @@ getBatches: async () => {
         throw new Error("Task mismatch: This task does not belong to the specified batch or is not assigned to you.");
       }
 
-      if (task.status === 'verified' || task.status === 'submitted') {
-        throw new Error("Task security block: Task has already been submitted or verified.");
+      // Check if this labeller has already submitted for this task
+      const existingSubmission = await Submission.findOne({
+        taskId: taskId,
+        submittedBy: labeller._id
+      });
+      
+      if (existingSubmission) {
+        throw new Error("Task security block: You have already submitted an annotation for this task.");
       }
 
-      // 3. Update Task Work State
-      // Note: Raw submission data is handled directly between frontend and Cloudflare R2.
-      // The backend only manages the lifecycle metadata and verification states.
-      task.status = 'submitted';
-      task.completedAt = new Date();
-      
-      // Construct the expected R2 result path for verification later
-      if (!task.r2_task_resultRef) {
-         task.r2_task_resultRef = `${task.r2_datasetUrl}/results/${task.taskId}.json`;
-      }
-      
-      await task.save();
+      // 3. Create the Submission Record
+      const submissionId = `SUB-${taskId.toString().slice(-6)}-${labellerId.toString().slice(-6)}-${Date.now().toString().slice(-6)}`;
+      const r2_output_key = `${task.r2_datasetUrl}/results/${labellerId}/${task.taskId}.json`;
 
-      // 4. Update Batch Progress (Atomic)
-      const updatedBatch = await Batch.findByIdAndUpdate(
-        batchId,
-        { $inc: { completedTasks: 1 } },
-        { new: true }
-      );
+      // Verify that the annotation result file exists in Cloudflare R2
+      try {
+        const headCommand = new HeadObjectCommand({
+          Bucket: process.env.R2_BUCKET_NAME,
+          Key: r2_output_key
+        });
+        await r2.send(headCommand);
+        logger.info(`Verified annotation file exists in R2`, { r2_output_key });
+      } catch (r2Error) {
+        logger.error(`Verification failed: annotation result file not found in R2`, { error: r2Error.message, r2_output_key });
+        throw new Error("Validation failed: You must upload the annotation payload to cloud storage before final submission.");
+      }
+
+      // Validate uploaded annotation JSON before finalizing submission state.
+      try {
+        const getCommand = new GetObjectCommand({
+          Bucket: process.env.R2_BUCKET_NAME,
+          Key: r2_output_key,
+        });
+        const object = await r2.send(getCommand);
+        const bodyString = await streamToString(object.Body);
+        let annotation;
+        try {
+          annotation = JSON.parse(bodyString);
+        } catch {
+          throw new Error("Invalid annotation payload: uploaded file is not valid JSON.");
+        }
+        validateAnnotationPayload(annotation);
+      } catch (validationError) {
+        logger.error("Annotation payload validation failed", {
+          taskId,
+          batchId,
+          labellerId,
+          r2_output_key,
+          error: validationError.message,
+        });
+        throw validationError;
+      }
+
+      const submission = new Submission({
+        submissionId,
+        taskId,
+        datasetId: task.datasetId,
+        batchId: batchId,
+        submittedBy: labeller._id,
+        r2_output_key,
+        status: 'submitted'
+      });
+      await submission.save();
+
+      // 4. Calculate Labeller-Specific Progress
+      const completedCount = await Submission.countDocuments({
+        taskId: { $in: batch.tasks },
+        submittedBy: labeller._id
+      });
 
       // 5. Automatic Batch Lifecycle Transition
-      if (updatedBatch.completedTasks >= updatedBatch.totalTasks) {
-        updatedBatch.status = 'completed';
-        updatedBatch.completedAt = new Date();
-        await updatedBatch.save();
-        
-        logger.info(`Mission accomplished: Batch ${updatedBatch.batchId} fully completed by labeller ${labellerId}`);
+      // A batch is globally completed when every assigned labeller has completed all tasks
+      if (batch.assignedTo.length >= batch.maxLabellers) {
+        const labellers = await Labeller.find({ _id: { $in: batch.assignedTo } });
+        let allCompleted = true;
+        for (const l of labellers) {
+          const count = await Submission.countDocuments({
+            taskId: { $in: batch.tasks },
+            submittedBy: l._id
+          });
+          if (count < batch.totalTasks) {
+            allCompleted = false;
+            break;
+          }
+        }
+        if (allCompleted) {
+          batch.status = 'completed';
+          batch.completedAt = new Date();
+          await batch.save();
+          logger.info(`Mission accomplished: Batch ${batch.batchId} fully completed by all assigned labellers`);
+        }
       }
 
       logger.info(`Task submission metadata updated`, { taskId, batchId, labellerId });
@@ -699,13 +965,44 @@ getBatches: async () => {
         success: true, 
         message: "Task marked as submitted",
         progress: {
-          completed: updatedBatch.completedTasks,
-          total: updatedBatch.totalTasks,
-          percent: Math.round((updatedBatch.completedTasks / updatedBatch.totalTasks) * 100)
+          completed: completedCount,
+          total: batch.totalTasks,
+          percent: Math.round((completedCount / batch.totalTasks) * 100)
         }
       };
     } catch (error) {
       logger.error('Error updating task submission state', { error: error.message, taskId, batchId, labellerIdentifier });
+      throw error;
+    }
+  },
+
+  generateSubmissionUrl: async (taskId, labellerIdentifier) => {
+    try {
+      if (!taskId) throw new Error("Task id is required");
+      if (!labellerIdentifier) throw new Error("Labeller id is required");
+
+      const labeller = await resolveLabellerDocument(labellerIdentifier);
+      if (!labeller) throw new Error("Labeller profile not found");
+      const labellerId = labeller._id;
+
+      const task = await Task.findById(taskId);
+      if (!task) throw new Error("Task not found");
+
+      const r2_output_key = `${task.r2_datasetUrl}/results/${labellerId}/${task.taskId}.json`;
+
+      const command = new PutObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME,
+        Key: r2_output_key,
+        ContentType: "application/json",
+      });
+
+      const uploadUrl = await getSignedUrl(r2, command, {
+        expiresIn: 900, // 15 minutes
+      });
+
+      return { uploadUrl, r2_output_key };
+    } catch (error) {
+      logger.error('Error generating submission URL', { error: error.message, taskId });
       throw error;
     }
   },
@@ -793,7 +1090,32 @@ getBatches: async () => {
     const task = await Task.findById(taskId);
     if(!task) throw new Error("Task not found");
     if(!task.isAssigned) throw new Error("Task not assigned");
-    const newTask = await taskService.returnTaskToPool(taskId);
+
+    const newTask = await taskService.returnTaskToPool(taskId, { decrementAssignedCount: true });
+
+    if (task.batchId) {
+      const batch = await Batch.findById(task.batchId);
+      if (batch) {
+        batch.status = 'available';
+        batch.assignedTo = [];
+        batch.assignedAt = null;
+        batch.expiresAt = null;
+        batch.completedTasks = 0;
+        batch.completedAt = null;
+        await batch.save();
+
+        const batchTasks = await Task.find({
+          batchId: batch._id,
+          _id: { $ne: task._id },
+          status: { $ne: 'pending' }
+        });
+
+        for (const bt of batchTasks) {
+          await taskService.returnTaskToPool(bt._id.toString(), { decrementAssignedCount: true });
+        }
+      }
+    }
+
     return { message: "Task revoked successfully", newTask };
   },
   autoAssignTask: async () => {},
@@ -823,10 +1145,14 @@ getBatches: async () => {
       if (!datasetId) throw new Error("datasetId is required for batching");
 
       // 1. Fetch all unbatched tasks for this dataset
+      const datasetMeta = await Dataset.findById(datasetId)
+        .select("labellingMethod contentType")
+        .lean();
+
       const unbatchedTasks = await Task.find({
         datasetId,
         batchId: null
-      }).select('_id taskType').lean();
+      }).select("_id taskType contentType").lean();
 
       if (unbatchedTasks.length === 0) {
         logger.info('No unbatched tasks found for dataset', { datasetId });
@@ -844,7 +1170,9 @@ getBatches: async () => {
       for (let i = 0; i < unbatchedTasks.length; i += batchSize) {
         const batchTasks = unbatchedTasks.slice(i, i + batchSize);
         const taskIds = batchTasks.map(t => t._id);
-        const type = batchTasks[0].taskType;
+        const type =
+          batchTasks[0].contentType ||
+          normalizeContentType(batchTasks[0], datasetMeta);
 
         batchesToCreate.push({
           batchId: `B-${datasetId.toString().slice(-4)}-${Math.floor(i / batchSize)}-${Date.now().toString().slice(-4)}`,
@@ -853,6 +1181,7 @@ getBatches: async () => {
           totalTasks: taskIds.length,
           completedTasks: 0,
           batchType: type,
+          labellingMethod: datasetMeta?.labellingMethod || "annotation",
           status: 'available',
           priority: 0 // Could be inherited from tasks if needed
         });
@@ -884,6 +1213,7 @@ getBatches: async () => {
       throw error;
     }
   },
+
   claimBatch: async (datasetId, labellerIdentifier) => {
     try {
       // 1. Verify Dataset is allowed to be worked on
@@ -900,52 +1230,33 @@ getBatches: async () => {
         throw new Error(`Mission authorization pending. Status: ${dataset.status}`);
       }
 
-      // 2. Find an available batch and assign it atomically
       const labeller = await resolveLabellerDocument(labellerIdentifier);
       if (!labeller) throw new Error("Labeller profile not found");
 
-      const batch = await Batch.findOneAndUpdate(
-        {
+      // 2. Check for existing active assignment
+      const existingBatch = await checkExistingBatchAssignment(datasetId, labeller._id);
+      if (existingBatch) {
+        logger.info('Labeller already has active batch assignment, returning existing batch', {
           datasetId,
-          status: { $in: ['available', 'in_progress'] },
-          assignedTo: { $ne: labeller._id },
-          $expr: {
-            $lt: [
-              { $size: { $ifNull: ["$assignedTo", []] } },
-              { $ifNull: ["$maxLabellers", 1] }
-            ]
-          }
-        },
-        {
-          $set: {
-            status: 'in_progress',
-            assignedAt: new Date(),
-            expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000) // 4 hour TTL
-          },
-          $addToSet: { assignedTo: labeller._id }
-        },
-        { new: true }
-      ).populate('tasks');
+          labellerId: labeller._id,
+          batchId: existingBatch._id
+        });
+        await existingBatch.populate("tasks");
+        return enrichBatchWithDataset(existingBatch);
+      }
 
+      // 3. Find and lock an available batch
+      const batch = await findAndLockAvailableBatch(datasetId, labeller._id);
       if (!batch) {
         throw new Error("All active batches for this node are currently occupied or completed.");
       }
 
-      // Mark all tasks in the batch as assigned
-      const taskIds = batch.tasks.filter(t => t).map(t => t._id || t);
-      await Task.updateMany(
-        { _id: { $in: taskIds } },
-        {
-          $set: {
-            isAssigned: true,
-            assignedAt: new Date(),
-            status: 'in_progress'
-          },
-          $addToSet: { assignedTo: labeller._id }
-        }
-      );
+      // 4. Assign tasks to the labeller and update their profile metrics
+      await assignBatchTasksToLabeller(batch, labeller._id);
 
-      return batch;
+      await batch.populate("tasks");
+
+      return enrichBatchWithDataset(batch);
     } catch (error) {
       logger.error('Error claiming batch', { error: error.message, datasetId, labellerIdentifier });
       throw error;
@@ -963,31 +1274,245 @@ getBatches: async () => {
       const batch = await Batch.findOne({
         assignedTo: labeller._id,
         status: 'in_progress'
-      }).populate({
-        path: 'tasks',
-        match: { status: { $ne: 'verified' } }
-      }).sort({ assignedAt: -1 }).lean();
+      }).populate('tasks').sort({ assignedAt: -1 }).lean();
 
-      return batch || null;
+      if (!batch) return null;
+
+      // Fetch all submissions by this user for the tasks in the batch
+      const submissions = await Submission.find({
+        taskId: { $in: batch.tasks.map(t => t._id) },
+        submittedBy: labeller.userId
+      }).lean();
+
+      // If the user has completed all tasks in this batch, it is no longer active for them
+      if (submissions.length >= batch.totalTasks) {
+        return null;
+      }
+
+      // Map task statuses dynamically in memory based on user's submission state
+      const submissionMap = new Map(submissions.map(s => [s.taskId.toString(), s]));
+      batch.tasks = batch.tasks.map(t => {
+        const sub = submissionMap.get(t._id.toString());
+        let mappedStatus = 'pending';
+        if (sub) {
+          if (sub.status === 'approved') mappedStatus = 'verified';
+          else if (sub.status === 'rejected') mappedStatus = 'rejected';
+          else mappedStatus = 'submitted';
+        }
+        return { ...t, status: mappedStatus };
+      });
+
+      return enrichBatchWithDataset(batch);
     } catch (error) {
       logger.error('Error fetching active batch', { error: error.message, labellerIdentifier });
       throw error;
     }
   },
 
-  revokeExpiredBatches: async () => {
+  revokeExpiredBatches: async ({ datasetId } = {}) => {
     try {
       const now = new Date();
+
+      // ── Targeted mode: revoke ALL batches for a specific dataset ──────────
+      // Ignores expiry — useful for admin resets, dataset suspension, re-ingest
+      if (datasetId) {
+        if (!mongoose.Types.ObjectId.isValid(datasetId)) {
+          throw new Error(`Invalid datasetId: ${datasetId}`);
+        }
+
+        const datasetBatches = await Batch.find({
+          datasetId,
+          status: { $in: ['in_progress', 'available', 'completed', 'expired', 'flagged'] }
+        }).lean();
+
+        if (datasetBatches.length === 0) {
+          logger.info('No active batches found for dataset', { datasetId });
+          return { revoked: 0, tasksReset: 0, datasetId };
+        }
+
+        const batchIds = datasetBatches.map(b => b._id);
+
+        // Fetch affected task IDs first
+        const affectedTaskIds = await Task.find(
+          { batchId: { $in: batchIds } },
+          { _id: 1 }
+        ).lean().then(docs => docs.map(d => d._id));
+
+        let submissionsDeletedCount = 0;
+
+        if (affectedTaskIds.length > 0) {
+          // 1. Delete all Submission documents associated with these tasks
+          const submissionDeleteResult = await Submission.deleteMany({
+            taskId: { $in: affectedTaskIds }
+          });
+          submissionsDeletedCount = submissionDeleteResult.deletedCount;
+
+          // 2. Decrement completed & assigned task counts for labellers who completed any of these tasks
+          const labellersWithCompletedTasks = await Labeller.find({
+            "completedTasksLog.taskId": { $in: affectedTaskIds }
+          }).lean();
+
+          for (const labeller of labellersWithCompletedTasks) {
+            const completedCount = labeller.completedTasksLog.filter(log =>
+              affectedTaskIds.some(id => id.toString() === log.taskId.toString())
+            ).length;
+
+            if (completedCount > 0) {
+              const newTotalCompleted = Math.max(0, (labeller.performance.totalTasksCompleted || 0) - completedCount);
+              const newTotalAssigned = Math.max(0, (labeller.performance.totalTasksAssigned || 0) - completedCount);
+
+              await Labeller.updateOne(
+                { _id: labeller._id },
+                {
+                  $set: {
+                    "performance.totalTasksCompleted": newTotalCompleted,
+                    "performance.totalTasksAssigned": newTotalAssigned
+                  }
+                }
+              );
+            }
+          }
+
+          // Decrement totalTasksAssigned for in-progress tasks being revoked
+          const inProgressTasks = await Task.find({
+            batchId: { $in: batchIds },
+            status: 'in_progress'
+          }).lean();
+
+          const labellerInProgressCountMap = {};
+          for (const t of inProgressTasks) {
+            const lIds = Array.isArray(t.assignedTo) ? t.assignedTo : (t.assignedTo ? [t.assignedTo] : []);
+            for (const lId of lIds) {
+              const lIdStr = lId.toString();
+              labellerInProgressCountMap[lIdStr] = (labellerInProgressCountMap[lIdStr] || 0) + 1;
+            }
+          }
+
+          for (const lIdStr of Object.keys(labellerInProgressCountMap)) {
+            const count = labellerInProgressCountMap[lIdStr];
+            const labeller = await Labeller.findById(lIdStr);
+            if (labeller) {
+              const newTotalAssigned = Math.max(0, (labeller.performance.totalTasksAssigned || 0) - count);
+              await Labeller.updateOne(
+                { _id: labeller._id },
+                { $set: { "performance.totalTasksAssigned": newTotalAssigned } }
+              );
+            }
+          }
+
+          // 3. Scrub these tasks from labeller currentAssignedTasks and completedTasksLog
+          await Labeller.updateMany(
+            { currentAssignedTasks: { $in: affectedTaskIds } },
+            { $pull: { currentAssignedTasks: { $in: affectedTaskIds } } }
+          );
+
+          await Labeller.updateMany(
+            { "completedTasksLog.taskId": { $in: affectedTaskIds } },
+            { $pull: { completedTasksLog: { taskId: { $in: affectedTaskIds } } } }
+          );
+        }
+
+        // 4. Return all tasks in these batches to the pool
+        const taskUpdate = await Task.updateMany(
+          {
+            batchId: { $in: batchIds },
+            status: { $in: ['in_progress', 'pending', 'submitted', 'rejected', 'verified'] }
+          },
+          {
+            $set: {
+              status: 'pending',
+              isAssigned: false,
+              assignedTo: [],
+              assignedAt: null,
+              startedAt: null,
+              completedAt: null,
+              r2_task_resultRef: null,
+              isVerified: false,
+              verifiedBy: null,
+              verificationScore: null,
+              rejectionReason: null
+            }
+          }
+        );
+
+        // 5. Reset all batches: available, cleared assignment, no expiration
+        await Batch.updateMany(
+          { _id: { $in: batchIds } },
+          {
+            $set: {
+              status: 'available',
+              assignedTo: [],
+              assignedAt: null,
+              expiresAt: null,
+              completedTasks: 0,
+              completedAt: null
+            }
+          }
+        );
+
+        logger.info('Dataset batches force-revoked and renewed with full ripple cleanup', {
+          datasetId,
+          batchesRevoked: batchIds.length,
+          tasksReset: taskUpdate.modifiedCount,
+          submissionsDeleted: submissionsDeletedCount,
+        });
+
+        return {
+          datasetId,
+          revoked: batchIds.length,
+          tasksReset: taskUpdate.modifiedCount,
+          submissionsDeleted: submissionsDeletedCount,
+        };
+      }
+
+      // ── Global cron mode: sweep all expired in_progress batches ───────────
       const expiredBatches = await Batch.find({
         status: 'in_progress',
         expiresAt: { $lt: now }
-      });
+      }).lean();
 
       if (expiredBatches.length === 0) return { revoked: 0 };
 
       const batchIds = expiredBatches.map(b => b._id);
-      
-      // Reset batches to available state
+
+      // Collect task IDs for labeller cleanup
+      const expiredTaskIds = await Task.find(
+        { batchId: { $in: batchIds }, status: 'in_progress' },
+        { _id: 1 }
+      ).lean().then(docs => docs.map(d => d._id));
+
+      if (expiredTaskIds.length > 0) {
+        const inProgressTasks = await Task.find({
+          batchId: { $in: batchIds },
+          status: 'in_progress'
+        }).lean();
+
+        const labellerTaskCountMap = {};
+        for (const t of inProgressTasks) {
+          const lIds = Array.isArray(t.assignedTo) ? t.assignedTo : (t.assignedTo ? [t.assignedTo] : []);
+          for (const lId of lIds) {
+            const lIdStr = lId.toString();
+            labellerTaskCountMap[lIdStr] = (labellerTaskCountMap[lIdStr] || 0) + 1;
+          }
+        }
+
+        for (const lIdStr of Object.keys(labellerTaskCountMap)) {
+          const count = labellerTaskCountMap[lIdStr];
+          const labeller = await Labeller.findById(lIdStr);
+          if (labeller) {
+            const newTotalAssigned = Math.max(0, (labeller.performance.totalTasksAssigned || 0) - count);
+            await Labeller.updateOne(
+              { _id: labeller._id },
+              {
+                $pull: { currentAssignedTasks: { $in: expiredTaskIds } },
+                $set: { "performance.totalTasksAssigned": newTotalAssigned }
+              }
+            );
+          }
+        }
+      }
+
+      // Reset batches to available
       await Batch.updateMany(
         { _id: { $in: batchIds } },
         {
@@ -995,29 +1520,85 @@ getBatches: async () => {
             status: 'available',
             assignedTo: [],
             assignedAt: null,
-            expiresAt: null
+            expiresAt: null,
+            completedTasks: 0,
           }
         }
       );
 
-      // Reset tasks within those batches that are still marked as in_progress
-      await Task.updateMany(
+      // Reset in-progress tasks back to pending pool
+      const taskUpdate = await Task.updateMany(
         { batchId: { $in: batchIds }, status: 'in_progress' },
         {
           $set: {
             status: 'pending',
             isAssigned: false,
             assignedTo: [],
-            assignedAt: null
+            assignedAt: null,
+            startedAt: null,
           }
         }
       );
 
-      logger.info(`Batch auto-revocation complete: ${expiredBatches.length} batches returned to pool`);
-      return { revoked: expiredBatches.length };
+      logger.info('Global batch expiry sweep complete', {
+        batchesRevoked: expiredBatches.length,
+        tasksReset: taskUpdate.modifiedCount,
+      });
+
+      return {
+        revoked: expiredBatches.length,
+        tasksReset: taskUpdate.modifiedCount,
+      };
     } catch (error) {
-      logger.error('Critical error in batch auto-revocation', { error: error.message });
+      logger.error('Error in revokeExpiredBatches', {
+        error: error.message,
+        datasetId: datasetId ?? 'global-sweep',
+      });
       throw error;
     }
-  }
+  },
+
+  // Convenience alias — explicit intent at admin call sites
+  revokeDatasetBatches: async (datasetId) => {
+    if (!datasetId) throw new Error('datasetId is required');
+    return taskService.revokeExpiredBatches({ datasetId });
+  },
+
+  /**
+   * Flag a task as corrupted/problematic.
+   * Sets status → 'flagged', stores reason, and unassigns from labeller.
+   * Admin review queue will pick it up.
+   */
+  flagTask: async (taskId, labellerId, userId, reason, detail) => {
+    const task = await Task.findOne({
+      _id: taskId,
+      assignedTo: labellerId,
+      status: { $in: ['in_progress', 'pending'] }
+    });
+
+    if (!task) throw new Error('Task not found or not assigned to you');
+
+    task.status = 'flagged';
+    task.flagReason = reason;
+    task.flagDetail = detail || null;
+    task.flaggedBy = userId;
+    task.flaggedAt = new Date();
+    // Release from labeller so they can move on
+    task.isAssigned = false;
+    await task.save();
+
+    // Remove from labeller's active task list
+    await Labeller.updateOne(
+      { _id: labellerId },
+      { $pull: { currentAssignedTasks: task._id } }
+    );
+
+    logger.info('Task flagged by labeller', {
+      taskId: task._id,
+      labellerId,
+      reason,
+    });
+
+    return { taskId: task._id, status: 'flagged', reason };
+  },
 };

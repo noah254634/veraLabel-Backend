@@ -67,7 +67,7 @@ export const progressController = {
 
       for (let i = 0; i < events.length; i++) {
         try {
-          addEvent(projectId, datasetId, events[i]);
+          await addEvent(projectId, datasetId, events[i]);
           addedCount += 1;
         } catch (error) {
           logger.warn(`Failed to add event at index ${i}`, {
@@ -80,7 +80,7 @@ export const progressController = {
       }
 
       // Get session status after events added
-      const session = getSession(projectId, datasetId);
+      const session = await getSession(projectId, datasetId);
 
       logger.info('Progress update processed', {
         requestId,
@@ -136,7 +136,7 @@ export const progressController = {
         });
       }
 
-      const session = getSession(projectId, datasetId);
+      const session = await getSession(projectId, datasetId);
 
       if (!session) {
         logger.info('Progress session not found', { projectId, datasetId });
@@ -146,7 +146,7 @@ export const progressController = {
         });
       }
 
-      const summary = getSummary(projectId, datasetId);
+      const summary = await getSummary(projectId, datasetId);
 
       logger.info('Progress retrieved', {
         projectId,
@@ -236,14 +236,14 @@ export const progressController = {
       })}\n\n`);
 
       // Get or create session
-      let session = getSession(projectId, datasetId);
+      let session = await getSession(projectId, datasetId);
       if (!session) {
-        session = createSession(projectId, datasetId);
+        session = await createSession(projectId, datasetId);
       }
 
       // Send recent events with error handling
       try {
-        const recentEvents = getRecentEvents(projectId, datasetId, sinceTimestamp);
+        const recentEvents = await getRecentEvents(projectId, datasetId, sinceTimestamp);
         for (const event of recentEvents) {
           res.write(`data: ${JSON.stringify(event)}\n\n`);
         }
@@ -251,10 +251,10 @@ export const progressController = {
         logger.warn('Error sending recent events', { error: error.message, projectId, datasetId });
       }
 
-      session = getSession(projectId, datasetId);
+      session = await getSession(projectId, datasetId);
 
       if (session && (session.status === 'completed' || session.status === 'failed')) {
-        const summary = getSummary(projectId, datasetId);
+        const summary = await getSummary(projectId, datasetId);
         res.write(`data: ${JSON.stringify({ type: 'session_complete', status: session.status, summary })}\n\n`);
         closeStream('session already complete');
         return;
@@ -268,9 +268,15 @@ export const progressController = {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
 
         if (currentSession.status === 'completed' || currentSession.status === 'failed') {
-          const summary = getSummary(projectId, datasetId);
-          res.write(`data: ${JSON.stringify({ type: 'session_complete', status: currentSession.status, summary })}\n\n`);
-          closeStream('session complete');
+          getSummary(projectId, datasetId).then(summary => {
+            if (!closed && !res.writableEnded) {
+              res.write(`data: ${JSON.stringify({ type: 'session_complete', status: currentSession.status, summary })}\n\n`);
+              closeStream('session complete');
+            }
+          }).catch(err => {
+            logger.error('Error getting summary in SSE stream callback', { err: err.message });
+            closeStream('session complete error');
+          });
         }
       });
 
@@ -313,8 +319,8 @@ export const progressController = {
   getAllSessions: async (req, res) => {
     try {
       const status = req.query.status || null;
-      const sessions = getAllActiveSessions(status);
-      const stats = getSystemStats();
+      const sessions = await getAllActiveSessions(status);
+      const stats = await getSystemStats();
 
       logger.info('Admin retrieved all sessions', {
         count: sessions.length,
@@ -357,7 +363,7 @@ export const progressController = {
         });
       }
 
-      const deleted = clearSession(projectId, datasetId);
+      const deleted = await clearSession(projectId, datasetId);
 
       if (!deleted) {
         logger.info('Progress session not found for deletion', { projectId, datasetId });
@@ -394,8 +400,8 @@ export const progressController = {
    */
   cleanupSessions: async (req, res) => {
     try {
-      const cleanupResult = cleanupExpiredSessions();
-      const stats = getSystemStats();
+      const cleanupResult = await cleanupExpiredSessions();
+      const stats = await getSystemStats();
 
       logger.info('Admin triggered session cleanup', { cleanupResult, stats });
 
@@ -425,7 +431,7 @@ export const progressController = {
    */
   getStats: async (req, res) => {
     try {
-      const stats = getSystemStats();
+      const stats = await getSystemStats();
 
       return res.status(200).json({
         success: true,

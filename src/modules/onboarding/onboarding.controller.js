@@ -1,151 +1,95 @@
 import logger from "../../config/logger.js";
 import { onboardingService } from "./onboarding.service.js";
-export const onboardingController = {
-  createLabellerProfile: async (req, res) => {
-    try {
-        logger.info(req.body);
-        const userId = req.user._id;
-        const response = await onboardingService.createLabellerProfile(userId, req.body);
-        return res.status(200).json(response);
-    } catch (err) {
-      logger.error(err.message);
-      return res.status(400).json({ error: err.message });
-    }
-  },
-  getLabellerProfile: async (req, res) => {
-    try {
-        const response = await onboardingService.getLabellerProfile(req.user._id);
-        return res.status(200).json(response);
-    }catch(err){
-      return res.status(400).json({error:err.message});
-    }
-  },
-  updateLabellerProfile: async (req, res) => {
-    try {
-        const userId = req.user.role === "admin" && req.body.userId ? req.body.userId : req.user._id;
-        const response = await onboardingService.updateLabellerProfile(userId, req.body);
-        return res.status(200).json(response);
-    }catch(err){
-      return res.status(400).json({error:err.message});
-    }
-  },
-  deleteLabellerProfile: async (req, res) => {
-    try {
-        const response = await onboardingService.deleteLabellerProfile(req.user._id);
-        return res.status(200).json(response);
-    }catch(err){
-      return res.status(400).json({error:err.message});
-    }
-  },
-  createTrainingMaterial: async (req, res) => {
-    try {
-      const { title, content, module } = req.body;
-      if (!title || !content || !module) {
-        throw new Error("All fields are required");
-      }
-      const createdBy = req.user.email;
-      const response = await onboardingService.createTrainingMaterial(
-        title,
-        content,
-        module,
-        createdBy,
-      );
-      return res.status(200).json(response);
-    } catch (err) {
-      return res.status(400).json({ error: err.message });
-    }
-  },
-  getTrainingMaterial: async (req, res) => {
-    try {
-      const userId = req.user._id;
-      const response = await onboardingService.getTrainingMaterial(userId);
-      return res.status(200).json(response);
-    } catch (err) {
-      return res.status(400).json({ error: err.message });
-    }
-  },
-  updateTrainingMaterial: async (req, res) => {
-    const {quizId}=req.params;
-    const {title,content,difficulty}=req.body
-    const response=await onboardingService.updateTrainingMaterial(quizId,title,content,difficulty);
-    return res.status(200).json(response)
-  },
-  deleteTrainingMaterial: async (req, res) => {
-    try {
-      const { id } = req.params;
-      if (!id) throw new Error("Id is required");
-      const response = await onboardingService.deleteTrainingMaterial(id);
-      return res.status(200).json(response);
-    } catch (err) {
-      return res.status(400).json({ error: err.message });
-    }
-  },
-  createTrainingQuiz: async (req, res) => {
-    try {
-      const { quizId, difficulty, question, options, correctAnswer } = req.body;
-      const createdBy = req.user.email;
-      const response = await onboardingService.createTrainingQuiz(
-        quizId,
-        difficulty,
-        question,
-        options,
-        correctAnswer,
-        createdBy,
-      );
-      return res.status(200).json(response);
-    } catch (err) {
-      return res.status(400).json({ error: err.message });
-    }
-  },
-  getTrainingQuiz: async (req, res) => {
-    try {
-      const userId = req.user._id;
-      const response = await onboardingService.getTrainingQuiz(userId);
-      return res.status(200).json(response);
-    } catch (err) {
-      return res.status(400).json({ error: err.message });
-    }
-  },
-  updateTrainingQuiz: async (req, res) => {
-    const {quizId}=req.params;
-    const {difficulty,question,options,correctAnswer}=req.body;
-    const response=await onboardingService.updateTrainingQuiz(quizId,difficulty,question,options,correctAnswer);
-    return res.status(200).json(response)
-  },
-  deleteTrainingQuiz: async (req, res) => {
-    const {QuizId}=req.params;
-    const response=await onboardingService.deleteTrainingQuiz(QuizId)
-    return res.status(200).json(response)
-  },
-  submitTrainingQuiz: async (req, res) => {
-    try {
-      const { quizId, answers } = req.body;
-      const userId = req.user._id;
-      const response = await onboardingService.submitTrainingQuiz(
-        userId,
-        quizId,
-        answers,
-      );
-      return res.status(200).json(response);
-    } catch (err) {
-      return res.status(400).json({ error: err.message });
-    }
-  },
+import { asyncHandler, AppError } from "../../middlewares/errorHandler.middleware.js";
+import ResponseHandler from "../../helpers/responseHandler.js";
 
-  gettingStarted: async (req, res) => {
-    try {
-      const response = await onboardingService.gettingStarted();
-      return res.status(200).json(response);
-    }catch(err){
-      return res.status(400).json({error:err.message});
-    }
-  },
-  completeOnboarding: async (req, res) => {
-    try {
-      const response = await onboardingService.completeOnboarding(req.user._id);
-      return res.status(200).json(response);
-    } catch (err) {
-      return res.status(400).json({ error: err.message });
-    }
-  },
+export const onboardingController = {
+  createLabellerProfile: asyncHandler(async (req, res) => {
+    const response = await onboardingService.createLabellerProfile(req.user._id, req.body);
+    return ResponseHandler.created(res, response, "Labeller profile created");
+  }),
+
+  getLabellerProfile: asyncHandler(async (req, res) => {
+    const response = await onboardingService.getLabellerProfile(req.user._id);
+    return ResponseHandler.success(res, response, "Profile fetched");
+  }),
+
+  updateLabellerProfile: asyncHandler(async (req, res) => {
+    const userId = req.user.role === "admin" && req.body.userId ? req.body.userId : req.user._id;
+    const response = await onboardingService.updateLabellerProfile(userId, req.body);
+    return ResponseHandler.success(res, response, "Profile updated");
+  }),
+
+  deleteLabellerProfile: asyncHandler(async (req, res) => {
+    const response = await onboardingService.deleteLabellerProfile(req.user._id);
+    return ResponseHandler.success(res, response, "Profile deleted");
+  }),
+
+  createTrainingMaterial: asyncHandler(async (req, res) => {
+    const { title, content, module } = req.body;
+    if (!title || !content || !module) throw new AppError("All fields are required", 400);
+    const response = await onboardingService.createTrainingMaterial(title, content, module, req.user.email);
+    return ResponseHandler.created(res, response, "Training material created");
+  }),
+
+  getTrainingMaterial: asyncHandler(async (req, res) => {
+    const response = await onboardingService.getTrainingMaterial(req.user._id);
+    return ResponseHandler.success(res, response, "Training material fetched");
+  }),
+
+  updateTrainingMaterial: asyncHandler(async (req, res) => {
+    const { quizId } = req.params;
+    const { title, content, difficulty } = req.body;
+    const response = await onboardingService.updateTrainingMaterial(quizId, title, content, difficulty);
+    return ResponseHandler.success(res, response, "Training material updated");
+  }),
+
+  deleteTrainingMaterial: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!id) throw new AppError("Id is required", 400);
+    const response = await onboardingService.deleteTrainingMaterial(id);
+    return ResponseHandler.success(res, response, "Training material deleted");
+  }),
+
+  createTrainingQuiz: asyncHandler(async (req, res) => {
+    const { quizId, difficulty, question, options, correctAnswer } = req.body;
+    const response = await onboardingService.createTrainingQuiz(
+      quizId, difficulty, question, options, correctAnswer, req.user.email,
+    );
+    return ResponseHandler.created(res, response, "Quiz created");
+  }),
+
+  getTrainingQuiz: asyncHandler(async (req, res) => {
+    const response = await onboardingService.getTrainingQuiz(req.user._id);
+    return ResponseHandler.success(res, response, "Quiz fetched");
+  }),
+
+  updateTrainingQuiz: asyncHandler(async (req, res) => {
+    const { quizId } = req.params;
+    const { difficulty, question, options, correctAnswer } = req.body;
+    const response = await onboardingService.updateTrainingQuiz(quizId, difficulty, question, options, correctAnswer);
+    return ResponseHandler.success(res, response, "Quiz updated");
+  }),
+
+  deleteTrainingQuiz: asyncHandler(async (req, res) => {
+    const { QuizId } = req.params;
+    const response = await onboardingService.deleteTrainingQuiz(QuizId);
+    return ResponseHandler.success(res, response, "Quiz deleted");
+  }),
+
+  submitTrainingQuiz: asyncHandler(async (req, res) => {
+    const { quizId, answers } = req.body;
+    const response = await onboardingService.submitTrainingQuiz(req.user._id, quizId, answers);
+    return ResponseHandler.success(res, response, "Quiz submitted");
+  }),
+
+  gettingStarted: asyncHandler(async (req, res) => {
+    const response = await onboardingService.gettingStarted();
+    return ResponseHandler.success(res, response, "Getting started data fetched");
+  }),
+
+  completeOnboarding: asyncHandler(async (req, res) => {
+    const response = await onboardingService.completeOnboarding(req.user._id);
+    return ResponseHandler.success(res, response, "Onboarding completed");
+  }),
 };

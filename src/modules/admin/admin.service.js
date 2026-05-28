@@ -1,7 +1,10 @@
 import mongoose from "mongoose";
 import Dataset from "../datasets/dataset.model.js";
 import UserVera from "../users/user.model.js";
+import Buyer from "../buyer/buyer.model.js";
 import Batch from "../tasks/task.batch.model.js";
+import { datasetService } from "../datasets/dataset.service.js";
+
 export const adminService = {
   promoteToReviewerById: async (id) => {
     if (!id) throw new Error("Id  required to do this action");
@@ -96,22 +99,22 @@ export const adminService = {
     return dataset;
   },
   pendingDatasets: async () => {
-    const datasets = await Dataset.find({ status: "pending" });
+    const datasets = await Dataset.find({ status: "pending" }).sort({ createdAt: -1 });
     if (!datasets) throw new Error("No pending datasets found");
     return datasets;
   },
   approvedDatasets: async () => {
-    const datasets = await Dataset.find({ status: "approved" });
+    const datasets = await Dataset.find({ status: "approved" }).sort({ createdAt: -1 });
     if (!datasets) throw new Error("No approved datasets found");
     return datasets;
   },
   rejectedDatasets: async () => {
-    const datasets = await Dataset.find({ status: "rejected" });
+    const datasets = await Dataset.find({ status: "rejected" }).sort({ createdAt: -1 });
     if (!datasets) throw new Error("No rejected datasets found");
     return datasets;
   },
   flaggedDatasets: async () => {
-    const datasets = await Dataset.find({ "isFlagged.status": true });
+    const datasets = await Dataset.find({ "isFlagged.status": true }).sort({ createdAt: -1 });
     if (!datasets) throw new Error("No flagged datasets found");
     return datasets;
   },
@@ -300,16 +303,10 @@ export const adminService = {
     }
   },
   deleteDatasetById: async (id) => {
-    try {
-      if (!mongoose.Types.ObjectId.isValid(id))
-        throw new Error("Invalid dataset id");
-      if (!id) throw new Error("Id  required to do this action");
-      const dataset = await Dataset.findByIdAndDelete(id);
-      if (!dataset) throw new Error("Dataset not found");
-      return dataset;
-    } catch (err) {
-      return err.message;
-    }
+    if (!id) throw new Error("Id required to do this action");
+    if (!mongoose.Types.ObjectId.isValid(id)) throw new Error("Invalid dataset id");
+    // Full cascade: tasks, batches, submissions, invoices, labeller profile cleanup
+    return await datasetService.deleteDataset(id);
   },
   approveDatasetById: async (id) => {
     try {
@@ -382,5 +379,33 @@ export const adminService = {
     );
 
     return dataset;
+  },
+
+  getBuyers: async (status) => {
+    let query = {};
+    if (status) {
+      query.verificationStatus = status;
+    }
+    return await Buyer.find(query).populate('userId', 'name email profilePicture role status').sort({ createdAt: -1 });
+  },
+
+  approveBuyer: async (buyerId) => {
+    const buyer = await Buyer.findByIdAndUpdate(
+      buyerId,
+      { verificationStatus: "approved", isActive: true },
+      { new: true }
+    ).populate('userId', 'name email profilePicture role status');
+    if (!buyer) throw new Error("Buyer not found");
+    return buyer;
+  },
+
+  rejectBuyer: async (buyerId, adminNotes) => {
+    const buyer = await Buyer.findByIdAndUpdate(
+      buyerId,
+      { verificationStatus: "rejected", isActive: false, adminNotes: adminNotes || "" },
+      { new: true }
+    ).populate('userId', 'name email profilePicture role status');
+    if (!buyer) throw new Error("Buyer not found");
+    return buyer;
   },
 };

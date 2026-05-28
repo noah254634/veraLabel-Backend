@@ -30,23 +30,25 @@ export const asyncHandler = (fn) => {
  */
 export const errorHandler = (err, req, res, next) => {
   const isDevelopment = ENV().NODE_ENV !== "production";
-  
-  // Log request info (without sensitive data)
+
   logger.error({
     message: err.message,
     path: req.path,
     method: req.method,
-    ip: req.ip || req.connection.remoteAddress,
+    ip: req.ip || req.connection?.remoteAddress,
     timestamp: new Date().toISOString(),
-    stack: err.stack,
+    ...(isDevelopment && { stack: err.stack }),
   });
 
-  // Sanitize and send response
   const sanitized = sanitizeErrorResponse(err, isDevelopment);
-  
-  res.status(sanitized.status).json({
-    error: sanitized.message,
-    ...(isDevelopment && { stack: err.stack }), // Only in development
+
+  // Always emit the same envelope as ResponseHandler so the frontend
+  // reads one consistent shape: { success, message, timestamp }
+  return res.status(sanitized.status).json({
+    success: false,
+    message: sanitized.message,
+    timestamp: new Date().toISOString(),
+    ...(isDevelopment && { stack: err.stack }),
   });
 };
 
@@ -54,8 +56,10 @@ export const errorHandler = (err, req, res, next) => {
  * Not Found handler
  */
 export const notFoundHandler = (req, res) => {
-  res.status(404).json({
-    error: "Resource not found",
+  return res.status(404).json({
+    success: false,
+    message: "Resource not found",
+    timestamp: new Date().toISOString(),
   });
 };
 

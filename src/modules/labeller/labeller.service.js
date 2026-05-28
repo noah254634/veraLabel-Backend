@@ -367,9 +367,9 @@ export const labellerService = {
           minTasksCompleted: threshold.requiredTasksCompleted
         },
         labeller: {
-          userId: labeller.userId._id,
-          name: labeller.userId.name,
-          email: labeller.userId.email
+          userId: labeller.userId?._id || null,
+          name: labeller.userId?.name || 'Unknown Labeller',
+          email: labeller.userId?.email || ''
         }
       };
 

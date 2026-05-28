@@ -19,7 +19,7 @@ export const orderSchema=new mongoose.Schema({
     },
     buyerId:{
         type:mongoose.Schema.Types.ObjectId,
-        ref:"UserVera",
+        ref:"Buyer",
         required:true
 
     },

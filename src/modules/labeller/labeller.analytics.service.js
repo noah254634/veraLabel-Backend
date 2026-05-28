@@ -219,11 +219,11 @@ export const labellerAnalyticsService = {
 
     return earners.map((e, idx) => ({
       rank: idx + 1,
-      labellerName: e.userId.name,
+      labellerName: e.userId?.name || 'Unknown Labeller',
       tier: e.tier,
-      totalEarned: e.earnings.totalEarned,
-      tasksCompleted: e.performance.totalTasksCompleted,
-      avgQualityScore: e.performance.averageQualityScore
+      totalEarned: e.earnings?.totalEarned || 0,
+      tasksCompleted: e.performance?.totalTasksCompleted || 0,
+      avgQualityScore: e.performance?.averageQualityScore || 0
     }));
   },
 

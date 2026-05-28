@@ -19,11 +19,19 @@ const taskSchema = new Schema({
     required: true
   },
 
+  /** @deprecated Use contentType — kept in sync for legacy clients */
   taskType: {
-    enum: ['text', 'audio', 'video', 'rfhlearning', 'image', 'code'],
+    enum: ['text', 'audio', 'video', 'rfhlearning', 'image', 'code', 'document'],
     default: 'text',
-    type: String, 
-    required: true
+    type: String,
+    required: true,
+  },
+
+  contentType: {
+    enum: ['text', 'audio', 'video', 'image', 'code', 'document'],
+    default: 'text',
+    type: String,
+    required: false,
   },
 
   // R2 STORAGE REFERENCES (use these to fetch content)
@@ -81,14 +89,21 @@ const taskSchema = new Schema({
   status: {
     type: String,
     enum: [
-      "pending",     
-      "in_progress",   
-      "submitted",     
-      "verified",     
-      "rejected"       
+      "pending",
+      "in_progress",
+      "submitted",
+      "verified",
+      "rejected",
+      "flagged"       // Labeller reported issue — goes to admin review queue
     ],
     default: "pending"
   },
+
+  // Labeller flag fields
+  flagReason: { type: String, default: null },
+  flagDetail: { type: String, default: null },
+  flaggedBy: { type: Schema.Types.ObjectId, ref: "UserVera", default: null },
+  flaggedAt: { type: Date, default: null },
 
   startedAt: Date,
   completedAt: Date,
@@ -110,7 +125,7 @@ const taskSchema = new Schema({
   // 5. QUALITY CONTROL
   verifiedBy: {
     type: Schema.Types.ObjectId,
-    ref: "UserVera",
+    ref: "Reviewer",
     default: null
   },
 

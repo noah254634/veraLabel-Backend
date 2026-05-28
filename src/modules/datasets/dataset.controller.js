@@ -1,156 +1,101 @@
 import logger from "../../config/logger.js";
 import { datasetService } from "./dataset.service.js";
+import { asyncHandler, AppError } from "../../middlewares/errorHandler.middleware.js";
+import ResponseHandler from "../../helpers/responseHandler.js";
+
 export const datasetController = {
-    confirmUpload: async (req, res) => {
-        try {
-            const { r2Key, datasetId, dataType } = req.body;
+  confirmUpload: asyncHandler(async (req, res) => {
+    const { r2Key, datasetId, dataType } = req.body;
+    if (!r2Key) throw new AppError("r2Key is required", 400);
+    if (!datasetId) throw new AppError("datasetId is required", 400);
+    if (!dataType) throw new AppError("dataType is required", 400);
 
-            if (!r2Key) {
-                return res.status(400).json({ error: "r2Key is required" });
-            }
-            if (!datasetId) {
-                return res.status(400).json({ error: "datasetId is required" });
-            }
-            if (!dataType) {
-                return res.status(400).json({ error: "dataType is required" });
-            }
+    logger.info("confirmUpload started", { r2Key, datasetId, dataType });
+    const result = await datasetService.confirmUpload(r2Key, datasetId, dataType);
+    logger.info("confirmUpload completed", { datasetId, status: result.status });
+    return ResponseHandler.success(res, result, "Upload confirmed");
+  }),
 
-            logger.info("confirmUpload started", { r2Key, datasetId, dataType });
-            const result = await datasetService.confirmUpload(r2Key, datasetId, dataType);
-            logger.info("confirmUpload completed successfully", { datasetId, status: result.status });
-            return res.status(200).json(result);
-        } catch (err) {
-            const errorMsg = err instanceof Error ? err.message : String(err);
-            const errorStack = err instanceof Error ? err.stack : "No stack trace";
-            logger.error("confirmUpload error", { 
-                error: errorMsg, 
-                stack: errorStack,
-                body: req.body,
-                type: err?.constructor?.name,
-                cause: err?.cause
-            });
-            return res.status(500).json({ error: errorMsg });
-        }
-    },
-  generateUploadUrl: async (req, res) => {
-    try {
-      const { fileType } = req.body;
-      if (!fileType) throw new Error("fileType is required");
+  generateUploadUrl: asyncHandler(async (req, res) => {
+    const { fileType } = req.body;
+    if (!fileType) throw new AppError("fileType is required", 400);
+    const userId = req.user.id;
+    const { uploadUrl, key } = await datasetService.generateUploadUrl(userId, fileType);
+    logger.info("Upload URL generated", { userId, fileType });
+    return ResponseHandler.success(res, { uploadUrl, key }, "Upload URL generated");
+  }),
 
-      const userId = req.user.id;
-      const { uploadUrl, key } = await datasetService.generateUploadUrl(userId, fileType);
-      logger.info("Upload URL generated", { userId, fileType });
-      res.json({
-        uploadUrl,
-        key,
-      });
-    } catch (error) {
-      logger.error("Generate Upload URL Error", { error: error instanceof Error ? error.message : String(error), fileType: req.body?.fileType });
-      res.status(500).json({ error: `Failed to generate upload URL: ${error.message}` });
-    }
-  },
-  buyerSideDatasets: async (req, res) => {
-    try {
-      const datasets = await datasetService.buyerSideDatasets();
-      return res.json(datasets);
-    } catch (err) {
-      return res.status(400).json({ message: err.message });
-    }
-  },
+  buyerSideDatasets: asyncHandler(async (req, res) => {
+    const datasets = await datasetService.buyerSideDatasets();
+    return ResponseHandler.success(res, { datasets }, "Datasets fetched");
+  }),
 
-  getAllDatasets: async (req, res) => {
-    try {
-      const userRole = req.user?.role;
-      let filter = {};
+  getAllDatasets: asyncHandler(async (req, res) => {
+    const userRole = req.user?.role;
+    let filter = {};
+    if (userRole === "labeler") {
+      filter = { status: { $in: ["approved", "in_progress", "processing"] } };
+    }
+    const datasets = await datasetService.getAllDatasets(filter);
+    return ResponseHandler.success(res, { datasets }, "All datasets fetched");
+  }),
 
-      if (userRole === "labeler") {
-        // Labellers can work on anything that is approved or already active, 
-        // even if it's not yet "published" to the marketplace.
-        filter = {
-          status: { $in: ['approved', 'in_progress', 'processing'] }
-        };
-      }
+  getDatasetById: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const dataset = await datasetService.getDatasetById(id);
+    if (!dataset) throw new AppError("Dataset not found", 404);
+    return ResponseHandler.success(res, { dataset }, "Dataset fetched");
+  }),
 
-      const datasets = await datasetService.getAllDatasets(filter);
-      return res.json(datasets);
-    } catch (err) {
-      return res
-        .status(401)
-        .json({
-          error: `an error occurred in getting all the datasets ${err.message}`,
-        });
-    }
-  },
-  getDatasetById: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const dataset = await datasetService.getDatasetById(id);
-      return res.json(dataset);
-    } catch (err) {
-      return res.status(404).json({ error: err.message });
-    }
-  },
-  updateDataset: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const data = req.body;
-      const dataset = await datasetService.updateDataset(id, data);
-      return res.json(dataset);
-    } catch (err) {
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  deleteDataset: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const dataset = await datasetService.deleteDataset(id);
-      logger.info(dataset);
-      return res.json(dataset);
-    } catch (err) {
-      logger.error(err.message);
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  filterDatasets: async (req, res) => {
-    try {
-      const datasets = await datasetService.filterDatasets(req.query);
-      return res.json(datasets);
-    } catch (err) {
-      return res.status(400).json({ message: err.message });
-    }
-  },
-  createDataset: async (req, res) => {
-    try {
-      const body = req.body;
-      logger.info(JSON.stringify(body));
-      const {
-        domain,
-        specifications,
-        volume,
-        format,
-        budget,
-        fileUrl,
-        timeline,
-        qualityMetrics,
-      } = body;
-     
-      const userId = req.user?._id;
-      if (!userId) return res.status(401).json({ message: "Unauthorized" });
-      const response = await datasetService.createDataset(
-        domain,
-        specifications,    
-        volume,
-        format,
-        budget,
-        fileUrl,
-        timeline,
-        qualityMetrics,
-        userId,
-      );
-      return res.status(200).json({ response });
-    } catch (err) {
-      logger.error(err.message);
-      return res.status(500).json({ message: err.message });
-    }
-  },
+  updateDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const dataset = await datasetService.updateDataset(id, req.body);
+    return ResponseHandler.success(res, { dataset }, "Dataset updated");
+  }),
+
+  deleteDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!id) throw new AppError("Dataset id is required", 400);
+    const result = await datasetService.deleteDataset(id);
+    return ResponseHandler.success(res, result, "Dataset and all related data permanently deleted");
+  }),
+
+  filterDatasets: asyncHandler(async (req, res) => {
+    const datasets = await datasetService.filterDatasets(req.query);
+    return ResponseHandler.success(res, { datasets }, "Datasets filtered");
+  }),
+
+  createDataset: asyncHandler(async (req, res) => {
+    const { name, domain, specifications, volume, format, budget, fileUrl, timeline, qualityMetrics, instructionId, buyerAnswers, labellingMethod, contentType, intent, timelineDays } = req.body;
+    const buyerId = req.buyer?._id;
+    if (!buyerId) throw new AppError("Unauthorized", 401);
+    if (!name) throw new AppError("Dataset name is required", 400);
+
+    logger.info("createDataset request received", {
+      name,
+      domain,
+      labellingMethod,
+      contentType,
+      volume,
+      format,
+      budget,
+      fileUrl,
+      buyerId,
+      instructionId,
+      intent,
+      timelineDays
+    });
+
+    const response = await datasetService.createDataset(
+      name, domain, specifications, volume, format, budget, fileUrl, timeline, qualityMetrics, buyerId, instructionId, buyerAnswers, labellingMethod, contentType, intent, timelineDays
+    );
+
+    logger.info("createDataset completed successfully", {
+      datasetId: response.datasetId,
+      name: response.dataset?.name,
+      buyerId,
+    });
+
+    return ResponseHandler.created(res, { response }, "Dataset created successfully");
+  }),
 };

@@ -30,6 +30,7 @@ router.put("/datasets/:id/status", adminController.updateDatasetStatus);
 router.put("/datasets/:id/flag",adminController.flagDataset);
 router.put("/datasets/:id/unflag",adminController.unflagDataset);
 router.delete("/datasets/:id",adminController.deleteDataset);
+router.delete("/users/delete/:id",adminController.deleteUser);
 router.put("/setDatasetprice/:id",adminController.updateDatasetPrice)
 router.put("/datasets/:id/batch-price", adminController.updateDatasetBatchPrice);
 router.put("/datasets/:id/priority", adminController.updateDatasetPriority);
@@ -40,6 +41,10 @@ router.put("/users/:id/rate",adminController.rateUser);
 router.put("/users/:id/unverify",adminController.unverifyUser);
 router.put("/users/:id/verify",adminController.verifyUser);
 
+// Buyer Verification & Management Routes
+router.get("/buyers", adminController.getBuyers);
+router.put("/buyers/:id/approve", adminController.approveBuyer);
+router.put("/buyers/:id/reject", adminController.rejectBuyer);
 
 router.use("/settings", settingsRouter);
 

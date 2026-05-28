@@ -1,4 +1,4 @@
-import { ENV } from '../../config/env.js'   
+import { ENV } from '../../config/env.js'
 import axios from 'axios'
 import logger from '../../config/logger.js';
 import Paystack from 'paystack'
@@ -10,7 +10,7 @@ export const PaymentProvider = {
       const response = await paystack.transaction.initialize({
         reference,
         email: email || user?.email,
-        amount: amount * 100, // Paystack expects amount in kobo/cents
+        amount: Math.round(Number(amount) * 100), // Paystack expects amount in kobo/cents
         currency: currency,
         metadata: {
           custom_fields: [
@@ -26,14 +26,14 @@ export const PaymentProvider = {
             }
           ]
         },
-        callback_url:`http://localhost:5173/payments/success`
+        callback_url: `http://localhost:5173/payments/success`
       })
       if (!response || !response.status) {
         const message = response?.message || 'Paystack payment initialization failed';
         throw new Error(message);
       }
       return response.data;
-    }catch(err){
+    } catch (err) {
       logger.error(`Error initializing Paystack transaction: ${err.message}`);
       throw err;
     }
@@ -46,7 +46,7 @@ export const PaymentProvider = {
         throw new Error(message);
       }
       return response.data;
-    }catch(err){
+    } catch (err) {
       logger.error(`Error verifying Paystack transaction: ${err.message}`);
       throw err;
     }

@@ -22,7 +22,11 @@ const batchSchema = new mongoose.Schema(
     expiresAt: { type: Date }, // For auto-revocation logic
     completedAt: { type: Date },
     
-    batchType: { type: String }, // e.g., 'text', 'rfhlearning'
+    batchType: { type: String }, // primary content modality for the batch
+    labellingMethod: {
+      type: String,
+      enum: ["rlhf", "classification", "annotation", "transcription"],
+    },
     priority: { type: Number, default: 0 },
     maxLabellers: { type: Number, default: 1 }
   },
@@ -32,6 +36,5 @@ const batchSchema = new mongoose.Schema(
 // Indexes for high-performance batch claiming and monitoring
 batchSchema.index({ datasetId: 1, status: 1, priority: -1 });
 batchSchema.index({ assignedTo: 1, status: 1 });
-batchSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // Optional TTL index if we want automatic deletion, but probably better to just mark as available
 
 export default mongoose.model("Batch", batchSchema);

@@ -1,28 +1,22 @@
 import analyticsService from "./analytics.service.js";
+import { asyncHandler } from "../../middlewares/errorHandler.middleware.js";
+import ResponseHandler from "../../helpers/responseHandler.js";
+
 const analyticsController = {
-  overview: async (req, res) => {
-    try {
-      const overviewStats = await analyticsService.overview();
-      return res.json(overviewStats);
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  },
-  revenueAnalytics: async (req, res) => {
-    try {
-      const revenueStats = await analyticsService.getRevenueAnalytics();
-      return res.json(revenueStats);
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  },
-  datasetAnalytics: async (req, res) => {
-    try {
-      const datasetStats = await analyticsService.getDatasetAnalytics();
-      return res.json(datasetStats);
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  },
+  overview: asyncHandler(async (req, res) => {
+    const data = await analyticsService.overview();
+    return ResponseHandler.success(res, data, "Overview fetched successfully");
+  }),
+
+  revenueAnalytics: asyncHandler(async (req, res) => {
+    const data = await analyticsService.getRevenueAnalytics();
+    return ResponseHandler.success(res, data, "Revenue analytics fetched");
+  }),
+
+  datasetAnalytics: asyncHandler(async (req, res) => {
+    const data = await analyticsService.getDatasetAnalytics();
+    return ResponseHandler.success(res, data, "Dataset analytics fetched");
+  }),
 };
+
 export default analyticsController;

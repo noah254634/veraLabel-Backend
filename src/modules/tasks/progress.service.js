@@ -1,5 +1,5 @@
-
 import logger from '../../config/logger.js';
+import TaskProgressSession from './task.progress.model.js';
 
 const activeSessions = new Map();
 const sessionSubscribers = new Map();
@@ -24,13 +24,26 @@ const getSessionId = (projectId, datasetId) => {
   return { projectId: pId, datasetId: dId, sessionId: `${pId}:${dId}` };
 };
 
-const getMostRecentSession = (projectId, datasetId) => {
+const getMostRecentSession = async (projectId, datasetId) => {
   const { sessionId } = getSessionId(projectId, datasetId);
-  return activeSessions.get(sessionId) || null;
+  let session = activeSessions.get(sessionId);
+  if (!session) {
+    // Try to load from MongoDB
+    const doc = await TaskProgressSession.findOne({ sessionId }).lean();
+    if (doc) {
+      session = {
+        ...doc,
+        startTime: new Date(doc.startTime),
+        lastUpdate: new Date(doc.lastUpdate),
+        endTime: doc.endTime ? new Date(doc.endTime) : undefined,
+      };
+      activeSessions.set(sessionId, session);
+    }
+  }
+  return session || null;
 };
 
 const notifySessionSubscribers = (session, event) => {
-  // Use projectId:datasetId key for lookups (subscriptions don't know about timestamp)
   const subscriptionKey = `${session.projectId}:${session.datasetId}`;
   const subscribers = sessionSubscribers.get(subscriptionKey);
 
@@ -63,15 +76,18 @@ const validateEvent = (event) => {
   return event;
 };
 
-export const createSession = (projectId, datasetId) => {
+export const createSession = async (projectId, datasetId) => {
   try {
     const { projectId: pId, datasetId: dId, sessionId } = getSessionId(projectId, datasetId);
 
-    // Clear existing session if it exists to avoid memory leaks/conflicts
+    // Clear existing session if it exists in memory to avoid memory leaks/conflicts
     const existing = activeSessions.get(sessionId);
     if (existing && existing._timeoutId) {
       clearTimeout(existing._timeoutId);
     }
+
+    // Delete any old session from MongoDB
+    await TaskProgressSession.deleteOne({ sessionId });
 
     const session = {
       sessionId,
@@ -92,18 +108,52 @@ export const createSession = (projectId, datasetId) => {
 
     activeSessions.set(sessionId, session);
 
-    // Auto-cleanup after timeout with logging
-    const timeoutId = setTimeout(() => {
+    // Auto-cleanup in-memory Map after timeout with logging
+    const timeoutId = setTimeout(async () => {
       const deleted = activeSessions.delete(sessionId);
       if (deleted) {
-        logger.info('Session auto-cleaned after timeout', { sessionId, durationMs: SESSION_TIMEOUT });
+        logger.info('Session auto-cleaned from memory after timeout', { sessionId, durationMs: SESSION_TIMEOUT });
+        // Mark as failed in DB on inactivity timeout if still processing
+        await TaskProgressSession.updateOne(
+          { sessionId, status: 'processing' },
+          { $set: { status: 'failed', failureReason: 'Session timed out due to inactivity', endTime: new Date() } }
+        );
       }
     }, SESSION_TIMEOUT);
 
-    // Store timeout ID for manual cleanup if needed
     session._timeoutId = timeoutId;
 
-    logger.info('Progress session created', { sessionId, projectId: pId, datasetId: dId });
+    // Persist to MongoDB
+    try {
+      await TaskProgressSession.create({
+        sessionId,
+        projectId: pId,
+        datasetId: dId,
+        startTime: session.startTime,
+        events: [],
+        eventMetrics: session.eventMetrics,
+        status: session.status,
+        lastUpdate: session.lastUpdate
+      });
+    } catch (dbError) {
+      if (dbError.code === 11000) {
+        logger.info('Progress session already exists (concurrent creation), retrieving existing session', { sessionId });
+        const existingDoc = await TaskProgressSession.findOne({ sessionId }).lean();
+        if (existingDoc) {
+          const existingSession = {
+            ...existingDoc,
+            startTime: new Date(existingDoc.startTime),
+            lastUpdate: new Date(existingDoc.lastUpdate),
+            endTime: existingDoc.endTime ? new Date(existingDoc.endTime) : undefined,
+          };
+          activeSessions.set(sessionId, existingSession);
+          return existingSession;
+        }
+      }
+      throw dbError;
+    }
+
+    logger.info('Progress session created in DB & Memory', { sessionId, projectId: pId, datasetId: dId });
     return session;
   } catch (error) {
     logger.error('Error creating session', { error: error.message, projectId, datasetId });
@@ -111,17 +161,17 @@ export const createSession = (projectId, datasetId) => {
   }
 };
 
-export const addEvent = (projectId, datasetId, event) => {
+export const addEvent = async (projectId, datasetId, event) => {
   try {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
     const validatedEvent = validateEvent(event);
 
-    // Find the most recent session for this projectId:datasetId
-    let session = getMostRecentSession(pId, dId);
+    // Find the most recent session
+    let session = await getMostRecentSession(pId, dId);
 
     // Create new session if doesn't exist
     if (!session) {
-      session = createSession(pId, dId);
+      session = await createSession(pId, dId);
     }
 
     // Check event limit to prevent memory bloat
@@ -158,7 +208,23 @@ export const addEvent = (projectId, datasetId, event) => {
       session.completionSummary = validatedEvent.summary || {};
     }
 
-    logger.debug('Event added to session', {
+    // Update MongoDB
+    await TaskProgressSession.updateOne(
+      { sessionId: session.sessionId },
+      {
+        $push: { events: enrichedEvent },
+        $set: {
+          eventMetrics: session.eventMetrics,
+          status: session.status,
+          lastUpdate: session.lastUpdate,
+          endTime: session.endTime,
+          failureReason: session.failureReason,
+          completionSummary: session.completionSummary
+        }
+      }
+    );
+
+    logger.debug('Event added to session & saved to DB', {
       sessionId: session.sessionId,
       eventType: validatedEvent.type,
       eventCount: session.events.length,
@@ -173,27 +239,20 @@ export const addEvent = (projectId, datasetId, event) => {
   }
 };
 
-export const getSession = (projectId, datasetId) => {
+export const getSession = async (projectId, datasetId) => {
   try {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
-    const session = getMostRecentSession(pId, dId);
-
-    if (!session) {
-      logger.debug('Session not found', { projectId: pId, datasetId: dId });
-      return null;
-    }
-
-    return session;
+    return await getMostRecentSession(pId, dId);
   } catch (error) {
     logger.error('Error getting session', { error: error.message, projectId, datasetId });
     throw error;
   }
 };
 
-export const getRecentEvents = (projectId, datasetId, sinceTimestamp = null) => {
+export const getRecentEvents = async (projectId, datasetId, sinceTimestamp = null) => {
   try {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
-    const session = getSession(pId, dId);
+    const session = await getSession(pId, dId);
 
     if (!session) return [];
 
@@ -216,14 +275,14 @@ export const getRecentEvents = (projectId, datasetId, sinceTimestamp = null) => 
   }
 };
 
-export const getSummary = (projectId, datasetId) => {
+export const getSummary = async (projectId, datasetId) => {
   try {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
-    const session = getSession(pId, dId);
+    const session = await getSession(pId, dId);
 
     if (!session) return null;
 
-    const duration = new Date() - session.startTime;
+    const duration = (session.endTime ? new Date(session.endTime) : new Date()) - new Date(session.startTime);
 
     const eventCounts = {
       progress: 0,
@@ -259,8 +318,8 @@ export const getSummary = (projectId, datasetId) => {
       projectId: pId,
       datasetId: dId,
       durationMs: duration,
-      startTime: session.startTime.toISOString(),
-      endTime: session.endTime?.toISOString() || null,
+      startTime: new Date(session.startTime).toISOString(),
+      endTime: session.endTime ? new Date(session.endTime).toISOString() : null,
       createdAt: session.createdAt,
       eventCounts,
       eventMetrics: session.eventMetrics,
@@ -269,7 +328,7 @@ export const getSummary = (projectId, datasetId) => {
       lastProgressUpdate,
       failureReason: session.failureReason || null,
       completionSummary: session.completionSummary || null,
-      lastUpdate: session.lastUpdate.toISOString(),
+      lastUpdate: new Date(session.lastUpdate).toISOString(),
     };
   } catch (error) {
     logger.error('Error getting summary', { error: error.message, projectId, datasetId });
@@ -277,7 +336,7 @@ export const getSummary = (projectId, datasetId) => {
   }
 };
 
-export const clearSession = (projectId, datasetId) => {
+export const clearSession = async (projectId, datasetId) => {
   try {
     const { projectId: pId, datasetId: dId, sessionId } = getSessionId(projectId, datasetId);
     const session = activeSessions.get(sessionId);
@@ -289,40 +348,42 @@ export const clearSession = (projectId, datasetId) => {
     const deleted = activeSessions.delete(sessionId);
     sessionSubscribers.delete(sessionId);
     
-    if (deleted) {
-      logger.info('Session cleared', { sessionId });
+    // Also delete from MongoDB
+    const dbDeleted = await TaskProgressSession.deleteOne({ sessionId });
+    
+    if (deleted || dbDeleted.deletedCount > 0) {
+      logger.info('Session cleared from Memory & DB', { sessionId });
+      return true;
     }
 
-    return deleted;
+    return false;
   } catch (error) {
     logger.error('Error clearing session', { error: error.message, projectId, datasetId });
     throw error;
   }
 };
 
-export const getAllActiveSessions = (status = null) => {
+export const getAllActiveSessions = async (status = null) => {
   try {
-    const sessions = [];
-
-    for (const [key, session] of activeSessions) {
-      // Filter by status if provided
-      if (status && session.status !== status) {
-        continue;
-      }
-
-      sessions.push({
-        sessionId: key,
-        projectId: session.projectId,
-        datasetId: session.datasetId,
-        status: session.status,
-        startTime: session.startTime.toISOString(),
-        eventCount: session.events.length,
-        eventMetrics: session.eventMetrics,
-        durationMs: new Date() - session.startTime,
-      });
+    const query = {};
+    if (status) {
+      query.status = status;
     }
 
-    logger.debug('Retrieved active sessions', { count: sessions.length, filter: status });
+    const dbSessions = await TaskProgressSession.find(query).sort({ updatedAt: -1 }).lean();
+
+    const sessions = dbSessions.map(session => ({
+      sessionId: session.sessionId,
+      projectId: session.projectId,
+      datasetId: session.datasetId,
+      status: session.status,
+      startTime: new Date(session.startTime).toISOString(),
+      eventCount: session.events.length,
+      eventMetrics: session.eventMetrics,
+      durationMs: (session.endTime ? new Date(session.endTime) : new Date()) - new Date(session.startTime),
+    }));
+
+    logger.debug('Retrieved active sessions from DB', { count: sessions.length, filter: status });
     return sessions;
   } catch (error) {
     logger.error('Error getting all sessions', { error: error.message });
@@ -330,11 +391,12 @@ export const getAllActiveSessions = (status = null) => {
   }
 };
 
-export const cleanupExpiredSessions = () => {
+export const cleanupExpiredSessions = async () => {
   try {
     let cleaned = 0;
     const now = new Date();
 
+    // Cleanup in-memory Map
     for (const [key, session] of activeSessions) {
       const age = now - session.lastUpdate;
       
@@ -348,38 +410,57 @@ export const cleanupExpiredSessions = () => {
       }
     }
 
-    if (cleaned > 0) {
-      logger.info('Cleanup completed', { sessionsRemoved: cleaned, remaining: activeSessions.size });
+    // Update MongoDB sessions that timed out
+    const timeoutTime = new Date(Date.now() - SESSION_TIMEOUT);
+    const dbResult = await TaskProgressSession.updateMany(
+      { status: 'processing', lastUpdate: { $lt: timeoutTime } },
+      { $set: { status: 'failed', failureReason: 'Session timed out due to inactivity', endTime: new Date() } }
+    );
+
+    if (cleaned > 0 || dbResult.modifiedCount > 0) {
+      logger.info('Cleanup completed', { 
+        inMemoryRemoved: cleaned, 
+        dbSessionsTimedOut: dbResult.modifiedCount,
+        remainingInMemory: activeSessions.size 
+      });
     }
 
-    return { cleaned, remaining: activeSessions.size };
+    const totalActive = await TaskProgressSession.countDocuments();
+    return { cleaned, remaining: totalActive };
   } catch (error) {
     logger.error('Error during session cleanup', { error: error.message });
     throw error;
   }
 };
 
-export const getSystemStats = () => {
+export const getSystemStats = async () => {
   try {
-    let totalEvents = 0;
-    let totalErrors = 0;
-    let completedSessions = 0;
-    let failedSessions = 0;
+    const activeSessionsCount = await TaskProgressSession.countDocuments();
+    const completedSessionsCount = await TaskProgressSession.countDocuments({ status: 'completed' });
+    const failedSessionsCount = await TaskProgressSession.countDocuments({ status: 'failed' });
+    const processingCount = await TaskProgressSession.countDocuments({ status: 'processing' });
 
-    for (const session of activeSessions.values()) {
-      totalEvents += session.events.length;
-      totalErrors += session.eventMetrics.errors;
-      if (session.status === 'completed') completedSessions += 1;
-      if (session.status === 'failed') failedSessions += 1;
-    }
+    // Aggregate totalEvents and totalErrors from metrics
+    const statsResult = await TaskProgressSession.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalEvents: { $sum: '$eventMetrics.processed' },
+          totalErrors: { $sum: '$eventMetrics.errors' }
+        }
+      }
+    ]);
+
+    const totalEvents = statsResult[0]?.totalEvents || 0;
+    const totalErrors = statsResult[0]?.totalErrors || 0;
 
     return {
-      activeSessions: activeSessions.size,
+      activeSessions: activeSessionsCount,
       totalEvents,
       totalErrors,
-      completedSessions,
-      failedSessions,
-      processingCount: activeSessions.size - completedSessions - failedSessions,
+      completedSessions: completedSessionsCount,
+      failedSessions: failedSessionsCount,
+      processingCount,
       timestamp: new Date().toISOString(),
     };
   } catch (error) {
@@ -394,7 +475,6 @@ export const subscribeToSession = (projectId, datasetId, listener) => {
   }
 
   const { projectId: pId, datasetId: dId, sessionId } = getSessionId(projectId, datasetId);
-  // Use the projectId:datasetId key for subscriptions (without timestamp)
   const subscriptionKey = sessionId;
 
   if (!sessionSubscribers.has(subscriptionKey)) {
@@ -403,11 +483,10 @@ export const subscribeToSession = (projectId, datasetId, listener) => {
 
   sessionSubscribers.get(subscriptionKey).add(listener);
 
-  // Get or create the most recent session
-  let session = getMostRecentSession(pId, dId);
-  if (!session) {
-    session = createSession(pId, dId);
-  }
+  // We also try to fetch/load the session into activeSessions map if it exists in DB
+  getMostRecentSession(pId, dId).catch(err => {
+    logger.warn('Error fetching session in subscriber init', { err: err.message, projectId: pId, datasetId: dId });
+  });
 
   return () => {
     const subscribers = sessionSubscribers.get(subscriptionKey);

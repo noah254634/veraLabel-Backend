@@ -41,11 +41,10 @@ const datasetSchema = new mongoose.Schema(
     },
     datasetLabeler: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "UserVera",
-      required: true,
-    },
+      ref: "Labeller",
+      },
     rating: {
-      type: Number,
+      type: Number, 
       default: 0,
       required: true,
       min: 0,
@@ -62,7 +61,7 @@ const datasetSchema = new mongoose.Schema(
     },
     exclusiveBuyer: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "UserVera",
+      ref: "Buyer",
       default: null,
     },
     exclusivePrice: {
@@ -141,11 +140,21 @@ const datasetSchema = new mongoose.Schema(
 
     buyerId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "UserVera",
+      ref: "Buyer",
       required: false,
     },
     domain: {
       type: String,
+      required: false,
+    },
+    labellingMethod: {
+      type: String,
+      enum: ["rlhf", "classification", "annotation", "transcription"],
+      required: false,
+    },
+    contentType: {
+      type: String,
+      enum: ["text", "audio", "video", "image", "code", "document"],
       required: false,
     },
     volume: {
@@ -195,7 +204,7 @@ const datasetSchema = new mongoose.Schema(
     },
     assignedLabelerId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "UserVera",
+      ref: "Labeller",
       required: false,
     },
     downloadUrl: {
