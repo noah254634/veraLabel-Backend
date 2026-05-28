@@ -8,6 +8,8 @@ node_modules
 /src/.google-services.json
 .google-services.json
 .plist
+.src/*.plist
+.src/
 
 # Firebase service account credentials — NEVER commit these
 /src/firebase-adminsdk.json
@@ -30,3 +32,6 @@ coverage
 # OS-generated files
 .DS_Store
 Thumbs.db
+
+# Ignore local scripts directory
+scripts/
