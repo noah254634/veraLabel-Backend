@@ -17,6 +17,7 @@ router.get("/users/registrations", notImplemented);   // per day/week/month
 router.get("/users/activity", notImplemented);        // DAU / MAU
 router.get("/users/retention", notImplemented);       // cohort analysis
 router.get("/datasets", analyticsController.datasetAnalytics);
+router.get("/buyers", analyticsController.buyerAnalytics);
 router.get("/datasets/summary", notImplemented);
 router.get("/datasets/submissions", notImplemented);
 router.get("/datasets/approval-rate", notImplemented);

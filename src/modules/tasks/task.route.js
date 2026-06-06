@@ -11,7 +11,7 @@ const tasksReadLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 120 })
 const tasksWriteLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 30 })
 const progressLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 1000 })
 const adminLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 100 })
-
+router.get('/getTaskSubmissions', tasksReadLimiter, taskController.getTaskSubmissions)
 router.post('/createTasks', tasksWriteLimiter, taskController.createTasks)
 router.post('/register', tasksWriteLimiter, taskController.createTasks)
 router.get('/', tasksReadLimiter, taskController.getTasks)

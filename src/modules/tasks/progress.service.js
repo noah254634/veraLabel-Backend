@@ -80,7 +80,7 @@ export const createSession = async (projectId, datasetId) => {
   try {
     const { projectId: pId, datasetId: dId, sessionId } = getSessionId(projectId, datasetId);
 
-    // Clear existing session if it exists in memory to avoid memory leaks/conflicts
+    // Clear existing session timeout
     const existing = activeSessions.get(sessionId);
     if (existing && existing._timeoutId) {
       clearTimeout(existing._timeoutId);
@@ -108,7 +108,7 @@ export const createSession = async (projectId, datasetId) => {
 
     activeSessions.set(sessionId, session);
 
-    // Auto-cleanup in-memory Map after timeout with logging
+    // Auto-cleanup in-memory Map
     const timeoutId = setTimeout(async () => {
       const deleted = activeSessions.delete(sessionId);
       if (deleted) {
@@ -174,7 +174,7 @@ export const addEvent = async (projectId, datasetId, event) => {
       session = await createSession(pId, dId);
     }
 
-    // Check event limit to prevent memory bloat
+    // Check event limit
     if (session.events.length >= MAX_EVENTS_PER_SESSION) {
       const warning = `Session event limit (${MAX_EVENTS_PER_SESSION}) reached, oldest event removed`;
       logger.warn(warning, { sessionId: session.sessionId });
@@ -235,6 +235,114 @@ export const addEvent = async (projectId, datasetId, event) => {
     return session;
   } catch (error) {
     logger.error('Error adding event', { error: error.message, projectId, datasetId });
+    throw error;
+  }
+};
+
+export const addEvents = async (projectId, datasetId, events) => {
+  try {
+    const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
+
+    let session = await getMostRecentSession(pId, dId);
+    if (!session) {
+      session = await createSession(pId, dId);
+    }
+
+    const validatedEvents = [];
+    const failedEvents = [];
+    const now = new Date();
+    let hasFinalEvent = false; // complete or critical error — must be persisted
+
+    for (let i = 0; i < events.length; i++) {
+      try {
+        const validatedEvent = validateEvent(events[i]);
+
+        if (session.events.length >= MAX_EVENTS_PER_SESSION) {
+          session.events.shift();
+        }
+
+        const enrichedEvent = {
+          ...validatedEvent,
+          serverReceivedAt: now.toISOString(),
+          eventIndex: session.events.length + validatedEvents.length,
+        };
+
+        validatedEvents.push(enrichedEvent);
+
+        session.eventMetrics.processed += 1;
+        if (validatedEvent.type === 'error') session.eventMetrics.errors += 1;
+        if (validatedEvent.severity === 'warning') session.eventMetrics.warnings += 1;
+        if (validatedEvent.type === 'checkpoint') session.eventMetrics.checkpoints += 1;
+
+        if (validatedEvent.type === 'error' && validatedEvent.severity === 'critical') {
+          session.status = 'failed';
+          session.failureReason = validatedEvent.message;
+          session.endTime = now;
+          hasFinalEvent = true;
+        } else if (validatedEvent.type === 'complete') {
+          session.status = 'completed';
+          session.endTime = now;
+          session.completionSummary = validatedEvent.summary || {};
+          hasFinalEvent = true;
+        }
+      } catch (error) {
+        logger.warn(`Failed to process event at index ${i}`, {
+          error: error.message,
+          event: events[i],
+        });
+        failedEvents.push({ index: i, error: error.message });
+      }
+    }
+
+    if (validatedEvents.length > 0) {
+      session.events.push(...validatedEvents);
+      session.lastUpdate = now;
+
+      // Routine progress events are in-memory only; persist on final state changes.
+      if (hasFinalEvent) {
+        await TaskProgressSession.updateOne(
+          { sessionId: session.sessionId },
+          {
+            $push: { events: { $each: validatedEvents } },
+            $set: {
+              eventMetrics: session.eventMetrics,
+              status: session.status,
+              lastUpdate: session.lastUpdate,
+              endTime: session.endTime,
+              failureReason: session.failureReason,
+              completionSummary: session.completionSummary,
+            },
+          }
+        );
+        logger.debug('Final event persisted to DB', {
+          sessionId: session.sessionId,
+          status: session.status,
+        });
+      } else {
+        // Fire-and-forget lightweight metadata update (no events array push)
+        TaskProgressSession.updateOne(
+          { sessionId: session.sessionId },
+          {
+            $set: {
+              eventMetrics: session.eventMetrics,
+              lastUpdate: session.lastUpdate,
+            },
+          }
+        ).catch(err => logger.warn('Non-critical progress DB update failed', { error: err.message }));
+      }
+
+      for (const enrichedEvent of validatedEvents) {
+        notifySessionSubscribers(session, enrichedEvent);
+      }
+    }
+
+    return {
+      session,
+      addedCount: validatedEvents.length,
+      failedEvents,
+    };
+  } catch (error) {
+    logger.error('Error adding events', { error: error.message, projectId, datasetId });
     throw error;
   }
 };

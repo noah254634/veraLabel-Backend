@@ -1,10 +1,10 @@
 /**
- * Progress Controller - Handles progress update endpoints
- * Implements defensive validation and comprehensive error handling
+ * Progress Controller
  */
 
 import { 
   addEvent, 
+  addEvents,
   getSession, 
   getSummary, 
   getRecentEvents, 
@@ -17,9 +17,7 @@ import {
 } from './progress.service.js';
 import logger from '../../config/logger.js';
 
-/**
- * Validate request body contains required fields
- */
+
 const validateProgressRequest = (body) => {
   if (!body) throw new Error('Request body is required');
   if (!body.projectId) throw new Error('projectId is required');
@@ -61,26 +59,8 @@ export const progressController = {
         });
       }
 
-      // Add all events with detailed logging
-      let addedCount = 0;
-      const failedEvents = [];
-
-      for (let i = 0; i < events.length; i++) {
-        try {
-          await addEvent(projectId, datasetId, events[i]);
-          addedCount += 1;
-        } catch (error) {
-          logger.warn(`Failed to add event at index ${i}`, {
-            error: error.message,
-            event: events[i],
-            requestId,
-          });
-          failedEvents.push({ index: i, error: error.message });
-        }
-      }
-
-      // Get session status after events added
-      const session = await getSession(projectId, datasetId);
+      // Add all events in bulk with detailed logging
+      const { session, addedCount, failedEvents } = await addEvents(projectId, datasetId, events);
 
       logger.info('Progress update processed', {
         requestId,

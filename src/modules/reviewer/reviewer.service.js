@@ -1,12 +1,14 @@
 import Task from '../tasks/task.model.js';
 import UserVera from '../users/user.model.js';
 import Labeller from '../labeller/labeller.model.js';
+import Dataset from '../datasets/dataset.model.js';
 import { labellerService } from '../labeller/labeller.service.js';
 import mailService from '../mailer/mailService.js';
 import logger from '../../config/logger.js';
 import { r2ContentFetcher } from "../tasks/r2.contentFetcher.js";
 import Submission from '../tasks/task.submission.model.js';
 import Reviewer from './reviewer.model.js';
+import { normalizeContentType } from '../tasks/taskContentType.js';
 const updateReviewerMetrics = async (reviewerId, rating, isApproved, submissionId) => {
   try {
     let reviewer = await Reviewer.findById(reviewerId);
@@ -346,16 +348,31 @@ export const reviewerService = {
       let taskObject = null;
       if (task.r2_input_taskRef) {
         try {
-          const contentType = task.contentType || task.taskType || 'text';
+          const dataset = await Dataset.findById(task.datasetId).select("contentType domain").lean();
+          const contentType = (task.contentType || normalizeContentType(task, dataset) || 'text').toLowerCase();
           if (['image', 'audio', 'video'].includes(contentType)) {
-            const presignedUrl = await r2ContentFetcher.getPresignedUrl(task.r2_input_taskRef);
-            taskObject = { url: presignedUrl };
+            try {
+              // Verify that the object actually exists in R2 first
+              await r2ContentFetcher.getContentMetadata(task.r2_input_taskRef);
+
+              const presignedUrl = await r2ContentFetcher.getPresignedUrl(task.r2_input_taskRef);
+              taskObject = { url: presignedUrl };
+            } catch (presignError) {
+              logger.warn('Could not generate presigned URL or verify media task in R2', { taskId: task._id, error: presignError.message });
+              taskObject = { url: null, error: `Media verification failed: ${presignError.message}` };
+            }
           } else {
-            const taskBuffer = await r2ContentFetcher.fetchTaskContent(task.r2_input_taskRef);
-            taskObject = JSON.parse(taskBuffer.toString('utf-8'));
+            try {
+              const taskBuffer = await r2ContentFetcher.fetchTaskContent(task.r2_input_taskRef);
+              taskObject = JSON.parse(taskBuffer.toString('utf-8'));
+            } catch (parseError) {
+              logger.warn('Could not parse task content as JSON', { taskId: task._id, error: parseError.message });
+              taskObject = { url: null, error: `Content fetch failed: ${parseError.message}` };
+            }
           }
         } catch (fetchError) {
           logger.warn('Could not fetch task content from R2', { taskId: task._id, error: fetchError.message });
+          taskObject = { url: null, error: `Task verification failed: ${fetchError.message}` };
         }
       }
 

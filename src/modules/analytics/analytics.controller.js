@@ -17,6 +17,12 @@ const analyticsController = {
     const data = await analyticsService.getDatasetAnalytics();
     return ResponseHandler.success(res, data, "Dataset analytics fetched");
   }),
+
+  buyerAnalytics: asyncHandler(async (req, res) => {
+    const data = await analyticsService.getBuyerAnalytics();
+    return ResponseHandler.success(res, data, "Buyer analytics fetched successfully");
+  }),
+
 };
 
 export default analyticsController;

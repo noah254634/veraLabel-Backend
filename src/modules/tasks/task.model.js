@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const Schema = mongoose.Schema;
 
 const taskSchema = new Schema({
-  // 1. IDENTITY & REFERENCES (NO RAW CONTENT)
+
   taskId: {
     type: String,
     required: true,
@@ -34,7 +34,7 @@ const taskSchema = new Schema({
     required: false,
   },
 
-  // R2 STORAGE REFERENCES (use these to fetch content)
+
   r2_datasetUrl: {
     type: String,
     required: true,
@@ -72,7 +72,7 @@ const taskSchema = new Schema({
     default: null
   },
 
-  // 2. ASSIGNMENT STATE
+
   isAssigned: {
     type: Boolean,
     default: false
@@ -85,7 +85,7 @@ const taskSchema = new Schema({
 
   assignedAt: Date,
 
-  // 3. WORK STATE
+
   status: {
     type: String,
     enum: [
@@ -108,7 +108,7 @@ const taskSchema = new Schema({
   startedAt: Date,
   completedAt: Date,
 
-  // 4. RESULT (REFERENCE ONLY, NOT RAW DATA)
+
   r2_task_resultRef: {
     type: String,
     default: null,
@@ -122,7 +122,7 @@ const taskSchema = new Schema({
     uploadedAt: Date
   },
 
-  // 5. QUALITY CONTROL
+
   verifiedBy: {
     type: Schema.Types.ObjectId,
     ref: "Reviewer",
@@ -143,7 +143,7 @@ const taskSchema = new Schema({
 
   rejectionReason: String,
 
-  // 6. METADATA
+
   priority: {
     type: Number,
     default: 0
@@ -155,5 +155,8 @@ const taskSchema = new Schema({
 taskSchema.index({ createdAt: 1 })
 taskSchema.index({ updatedAt: 1, status: 1})
 taskSchema.index({_id:1,status:1})
+taskSchema.index({ datasetId: 1, batchId: 1 })
+taskSchema.index({ r2_datasetUrl: 1 })
+taskSchema.index({ r2_input_taskRef: 1 })
 
 export default mongoose.model("Task", taskSchema);

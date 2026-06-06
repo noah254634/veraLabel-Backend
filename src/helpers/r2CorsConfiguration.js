@@ -8,10 +8,9 @@ const ensureCorsConfigured = async () => {
     // Environment-based CORS configuration
     const isDev = process.env.NODE_ENV !== 'production';
     
-    // For dev, use explicit origins instead of wildcard (R2 may not support "*")
-    const allowedOrigins = isDev 
-      ? ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:5174"]
-      : (process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [process.env.FRONTEND_URL]);
+    const envOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean) || [];
+    const devOrigins = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:5174"];
+    const allowedOrigins = Array.from(new Set([...devOrigins, ...envOrigins]));
     
     const maxAge = isDev ? 3000 : 86400; // 24 hours in production
     

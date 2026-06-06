@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../../../../dataset-splitter-worker"
+		},
+		{
+			"path": "../../../../veralabel-splitter"
 		}
 	],
 	"settings": {

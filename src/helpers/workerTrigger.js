@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import logger from '../config/logger.js';
-
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { r2 } from '../config/r2Upload.js';
 
 export async function triggerWorker(r2Key, projectId, datasetId, dataType) {
   const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
@@ -16,11 +18,28 @@ export async function triggerWorker(r2Key, projectId, datasetId, dataType) {
 
   const normalizedDataType = String(dataType).toLowerCase().trim();
 
+  let downloadUrl = null;
+  try {
+    // Generate a presigned GET URL for the R2 file so the worker can download it directly via fetch
+    const getCommand = new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: r2Key,
+    });
+    downloadUrl = await getSignedUrl(r2, getCommand, { expiresIn: 3600 }); // 1 hour
+    logger.info('Generated presigned download URL for worker', { r2Key, downloadUrlLength: downloadUrl.length });
+  } catch (urlError) {
+    logger.warn('Failed to generate presigned GET URL for worker', {
+      r2Key,
+      error: urlError.message,
+    });
+  }
+
   const payload = {
     r2Key,
     projectId,
     datasetId,
     dataType: normalizedDataType,
+    downloadUrl,
   };
 
   try {

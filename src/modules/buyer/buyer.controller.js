@@ -3,16 +3,18 @@ import { asyncHandler, AppError } from "../../middlewares/errorHandler.middlewar
 import ResponseHandler from "../../helpers/responseHandler.js";
 
 export const buyerController = {
-  getBuyers: asyncHandler(async (req, res) => {
-    const buyers = await buyerService.getBuyers();
-    return ResponseHandler.success(res, { buyers }, "Buyers fetched");
+  getBuyerProfile: asyncHandler(async (req, res) => {
+    return ResponseHandler.success(res, { buyer: req.buyer }, "Buyer profile fetched successfully");
   }),
-
+  submitOnboarding: asyncHandler(async (req, res) => {
+    const details = req.body;
+    const buyer = await buyerService.submitOnboarding(req.buyer._id, details);
+    return ResponseHandler.success(res, { buyer }, "Onboarding profile submitted successfully");
+  }),
   getAllBuyers: asyncHandler(async (req, res) => {
     const buyers = await buyerService.getAllBuyers();
     return ResponseHandler.success(res, { buyers }, "Buyers fetched");
   }),
-
   getOrders: asyncHandler(async (req, res) => {
     const orders = await buyerService.getOrders(req.buyer._id);
     return ResponseHandler.success(res, { orders }, "Orders fetched");
@@ -41,24 +43,5 @@ export const buyerController = {
     const { reason } = req.body;
     const response = await buyerService.reportIssue(orderId, req.buyer._id, reason);
     return ResponseHandler.success(res, { response }, "Issue reported successfully");
-  }),
-
-  getBuyerProfile: asyncHandler(async (req, res) => {
-    return ResponseHandler.success(res, { buyer: req.buyer }, "Buyer profile fetched successfully");
-  }),
-
-  submitOnboarding: asyncHandler(async (req, res) => {
-    const { companyName, website, linkedin, industry, companySize, intendedUseCase } = req.body;
-    if (!companyName) throw new AppError("Company name is required", 400);
-
-    const updatedBuyer = await buyerService.submitOnboarding(req.buyer._id, {
-      companyName,
-      website,
-      linkedin,
-      industry,
-      companySize,
-      intendedUseCase
-    });
-    return ResponseHandler.success(res, { buyer: updatedBuyer }, "Onboarding profile submitted successfully");
   }),
 };

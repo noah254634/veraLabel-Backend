@@ -16,6 +16,7 @@ import Submission from "../tasks/task.submission.model.js";
 import Labeller from "../labeller/labeller.model.js";
 import logger from "../../config/logger.js";
 import { createSession } from "../tasks/progress.service.js";
+import { taskService } from "../tasks/task.service.js";
 import {
   ALLOWED_LABELLING_METHODS,
   ALLOWED_CONTENT_TYPES,
@@ -420,6 +421,68 @@ export const datasetService = {
       throw new Error(`Dataset not found: ${datasetId}. Create dataset request first.`);
     }
 
+    const extension = r2Key.split('.').pop().toLowerCase();
+    const isZip = fileMetadata.contentType === 'application/zip' || 
+                  fileMetadata.contentType === 'application/x-zip-compressed' || 
+                  extension === 'zip';
+                  
+    const audioExtensions = ['wav', 'mp3', 'flac', 'ogg', 'm4a', 'aac'];
+    const isSingleAudio = !isZip && (
+      audioExtensions.includes(extension) ||
+      fileMetadata.contentType?.startsWith('audio/') ||
+      dataset.contentType === 'audio' ||
+      dataset.datasetType === 'audio'
+    );
+
+    if (isSingleAudio) {
+      const projectId = dataset.datasetLabeler?.toString() || dataset.buyerId?.toString() || "unknown";
+      logger.info("Single audio file detected. Bypassing worker and registering task directly.", {
+        datasetId,
+        projectId,
+        r2Key,
+        size: fileMetadata.size,
+      });
+
+      const mime = fileMetadata.contentType?.startsWith('audio/')
+        ? fileMetadata.contentType
+        : (extension === 'wav' ? 'audio/wav' : 'audio/mpeg');
+      const filename = r2Key.split('/').pop() || 'audio-task';
+
+      // Pre-create the progress session
+      try {
+        await createSession(projectId, datasetId);
+      } catch (sessionError) {
+        logger.warn("Failed to pre-create progress session in confirmUpload for single audio", {
+          projectId,
+          datasetId,
+          error: sessionError.message,
+        });
+      }
+
+      // Register the task directly in the database
+      await taskService.createTask({
+        datasetId: dataset._id.toString(),
+        projectId,
+        tasks: [{
+          taskId: uuidv4(),
+          taskType: 'audio',
+          r2_url: r2Key,
+          split: 'train',
+          fileName: filename,
+          fileSize: fileMetadata.size,
+          contentType: mime,
+        }],
+        isLastBatch: true,
+      });
+
+      return {
+        success: true,
+        message: "File uploaded successfully. Single audio task registered directly.",
+        datasetId: dataset._id.toString(),
+        status: "awaiting_payment",
+      };
+    }
+
     // Map format to worker's supported DATA_TYPES
     const dataTypeMap = {
       'json': 'text',
@@ -439,7 +502,7 @@ export const datasetService = {
     // Override with provided dataType if it matches a known type, or infer from domain
     if (dataset.labellingMethod === 'rlhf') {
       workerDataType = 'rlhf';
-    } else if (['rlhf', 'media', 'text'].includes(dataType?.toLowerCase())) {
+        } else if (['rlhf', 'media', 'text', 'audio'].includes(dataType?.toLowerCase())) {
       workerDataType = dataType.toLowerCase();
     } else {
       const domainLower = (dataset.domain || dataset.datasetType || '').toLowerCase();

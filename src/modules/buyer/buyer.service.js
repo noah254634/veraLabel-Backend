@@ -171,11 +171,27 @@ export const buyerService = {
     );
 
     const stats = allDataAssets.reduce((acc, item) => {
-      const budgetValue = parseFloat(String(item.budget || "0").replace(/[^0-9.]/g, "")) || 0;
-      acc.totalSpent += budgetValue;
-      if (item.status === "done") {
+      let budgetVal = 0;
+      if (item.entryType === 'custom') {
+        if (['cancelled', 'rejected', 'registration_failed'].includes(item.status)) {
+          budgetVal = 0;
+        } else if (item.price && item.price > 0) {
+          budgetVal = item.price;
+        } else {
+          budgetVal = parseFloat(String(item.budget || "0").replace(/[^0-9.]/g, "")) || 0;
+        }
+      } else {
+        budgetVal = parseFloat(String(item.budget || "0").replace(/[^0-9.]/g, "")) || 0;
+      }
+
+      acc.totalSpent += budgetVal;
+
+      const isActive = item.status === "done" || (item.entryType === 'custom' && ["in_progress", "completed"].includes(item.status));
+      const isPending = ["pending", "processing"].includes(item.status);
+
+      if (isActive) {
         acc.activeAssets += 1;
-      } else if (["pending", "processing"].includes(item.status)) {
+      } else if (isPending) {
         acc.pendingSync += 1;
       }
       return acc;
@@ -194,7 +210,7 @@ export const buyerService = {
       let processingProgress = 0;
       let invoice = null;
 
-      const dataset = await Dataset.findById(item._id).select('metadata.numRecords status').lean();
+      const dataset = await Dataset.findById(item._id).select('metadata.numRecords status price').lean();
       if (dataset) {
         actualRows = dataset.metadata?.numRecords || actualRows;
 
@@ -206,7 +222,7 @@ export const buyerService = {
         processingProgress = ['approved', 'awaiting_payment'].includes(dataset.status) ? 100 : Math.min(Math.round((tasksCreated / volumeTarget) * 100), 100);
       }
 
-      if (['awaiting_payment', 'pending'].includes(item.status)) {
+      if (['awaiting_payment', 'pending', 'in_progress', 'completed'].includes(item.status)) {
         invoice = await Invoice.findOne({ datasetId: item._id }).lean();
       }
 
@@ -214,7 +230,8 @@ export const buyerService = {
         ...item,
         actualRows,
         processingProgress,
-        invoice
+        invoice,
+        budget: (dataset && dataset.price && dataset.price > 0) ? dataset.price : item.budget
       };
     }));
 

@@ -2,6 +2,8 @@ import UserVera  from "../users/user.model.js";
 import Order from "../marketplace/order.model.js";
 import Dataset from "../datasets/dataset.model.js";
 import Payment from "../payments/models/payment.model.js";
+import Buyer from "../buyer/buyer.model.js";
+
 const analyticsService = {
   ordersReceived: async () => {
     const [orders,succesfulOrders,failedOrders,pendingOrders]= await Promise.all([
@@ -236,6 +238,130 @@ const analyticsService = {
       };
     } catch (error) {
       console.error("Dataset Analytics Error:", error);
+      throw error;
+    }
+  },
+  getBuyerAnalytics: async () => {
+    try {
+      const now = new Date();
+      const startOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+
+      const [
+        totalBuyers,
+        activeBuyers,
+        newThisMonth,
+        spendingDistribution,
+        topCategoriesAgg
+      ] = await Promise.all([
+        Buyer.countDocuments(),
+        Buyer.countDocuments({ isActive: true }),
+        Buyer.countDocuments({ createdAt: { $gte: startOfMonth } }),
+        
+        // Spending distribution grouping
+        Buyer.aggregate([
+          {
+            $project: {
+              range: {
+                $cond: [
+                  { $lte: ["$totalSpent", 100] }, "$0-100",
+                  { $cond: [
+                    { $lte: ["$totalSpent", 500] }, "$100-500",
+                    { $cond: [
+                      { $lte: ["$totalSpent", 1000] }, "$500-1000",
+                      "$1000+"
+                    ]}
+                  ]}
+                ]
+              }
+            }
+          },
+          {
+            $group: {
+              _id: "$range",
+              count: { $sum: 1 }
+            }
+          }
+        ]),
+
+        // Top categories from Orders joined with Datasets
+        Order.aggregate([
+          { $match: { status: "approved" } },
+          {
+            $lookup: {
+              from: "datasets",
+              localField: "datasetId",
+              foreignField: "_id",
+              as: "dataset"
+            }
+          },
+          { $unwind: "$dataset" },
+          {
+            $group: {
+              _id: "$dataset.datasetType",
+              purchases: { $sum: 1 }
+            }
+          },
+          { $sort: { purchases: -1 } },
+          { $limit: 5 }
+        ])
+      ]);
+
+      // Normalize spending distribution to ensure all brackets are present
+      const spendingMap = { "$0-100": 0, "$100-500": 0, "$500-1000": 0, "$1000+": 0 };
+      spendingDistribution.forEach(item => {
+        if (item._id && item._id in spendingMap) {
+          spendingMap[item._id] = item.count;
+        }
+      });
+      const buyerSpending = Object.keys(spendingMap).map(range => ({
+        range,
+        count: spendingMap[range]
+      }));
+
+      // Normalize top categories
+      const formatCategory = (cat) => {
+        if (!cat) return "Other";
+        if (cat === "RLHF" || cat === "NLP") return cat;
+        return cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
+      };
+
+      const topCategories = topCategoriesAgg.map(item => ({
+        category: formatCategory(item._id),
+        purchases: item.purchases
+      }));
+
+      // Fallback if no categories are found in orders yet
+      if (topCategories.length === 0) {
+        // Find categories from general datasets
+        const generalCategoriesAgg = await Dataset.aggregate([
+          {
+            $group: {
+              _id: "$datasetType",
+              purchases: { $sum: { $ifNull: ["$purchaseCount", 0] } }
+            }
+          },
+          { $sort: { purchases: -1 } },
+          { $limit: 5 }
+        ]);
+        generalCategoriesAgg.forEach(item => {
+          topCategories.push({
+            category: formatCategory(item._id),
+            purchases: item.purchases || 0
+          });
+        });
+      }
+
+      return {
+        buyerStats: {
+          totalBuyers,
+          activeBuyers,
+          newThisMonth
+        },
+        buyerSpending,
+        topCategories
+      };
+    } catch (error) {
+      console.error("Buyer Analytics Error:", error);
       throw error;
     }
   }

@@ -21,6 +21,30 @@ export const isLocalNetworkOrigin = (origin) => {
     }
 };
 
+export const isPagesDevOrigin = (origin) => {
+    if (!origin) return false;
+
+    try {
+        const url = new URL(origin);
+        return url.protocol === "https:" && url.hostname.endsWith(".pages.dev");
+    } catch {
+        return false;
+    }
+};
+
+export const isTryCloudflareOrigin = (origin) => {
+    if (!origin) return false;
+
+    try {
+        const url = new URL(origin);
+        return url.protocol === "https:" && url.hostname.endsWith(".trycloudflare.com");
+    } catch {
+        return false;
+    }
+};
+
+const normalizeOrigin = (origin) => origin.trim().replace(/\/+$/, "");
+
 const buildEnv = (processEnv = process.env, options = {}) => {
     const { debug = false } = options;
     
@@ -54,7 +78,10 @@ const buildEnv = (processEnv = process.env, options = {}) => {
         server_url: processEnv.SERVER_URL || "http://localhost:5000",
         handshake_url: processEnv.HANDSHAKE_URL,
         Internal_Secret: processEnv.INTERNAL_SECRET,
-        allowedOrigins: allowedOriginsStr.split(",").map(origin => origin.trim()),
+        allowedOrigins: allowedOriginsStr
+            .split(",")
+            .map(normalizeOrigin)
+            .filter(Boolean),
 
         firebase_service_account_key: processEnv.FIREBASE_SERVICE_ACCOUNT_KEY,
         firebase_vapid_key: processEnv.FIREBASE_VAPID_KEY,

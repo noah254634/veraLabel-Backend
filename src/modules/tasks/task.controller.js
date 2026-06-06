@@ -5,6 +5,10 @@ import { asyncHandler, AppError } from "../../middlewares/errorHandler.middlewar
 import ResponseHandler from "../../helpers/responseHandler.js";
 
 export const taskController = {
+  getTaskSubmissions: asyncHandler(async (req, res) => {
+    const response = await taskService.getTaskSubmissions();
+    return ResponseHandler.success(res, response, "Task submissions fetched");
+  }),
   getBatches: asyncHandler(async (req, res) => {
     const batches = await taskService.getBatches();
     return ResponseHandler.success(res, { batches }, "Batches fetched");
@@ -86,13 +90,19 @@ export const taskController = {
 
   submitTask: asyncHandler(async (req, res) => {
     const taskId = req.params.id;
-    const { batchId } = req.body;
+    const { batchId, isFlagged, flagReason, flagDetail } = req.body;
     if (!taskId) throw new AppError("Task id is required", 400);
     if (!batchId) throw new AppError("Batch id is required", 400);
 
     const labellerId = req.labeller?._id;
     if (!labellerId) throw new AppError("Labeller profile is required", 403);
     if (req.user.role !== "labeler") throw new AppError("Only labelers can submit tasks", 403);
+
+    if (isFlagged) {
+      if (!flagReason) throw new AppError("Flag reason is required", 400);
+      const response = await taskService.flagTask(taskId, labellerId, req.user?._id, flagReason, flagDetail, batchId);
+      return ResponseHandler.success(res, response, "Task flagged for admin review");
+    }
 
     const response = await taskService.submitTask(taskId, labellerId, batchId);
     return ResponseHandler.success(res, response, "Task submitted");
@@ -185,7 +195,7 @@ export const taskController = {
     return ResponseHandler.success(res, response, "Task flagged for admin review");
   }),
 
-  autoAssignTask: async () => {},
+  autoAssignTask: async () => { },
 
 
   claimBatch: asyncHandler(async (req, res) => {
