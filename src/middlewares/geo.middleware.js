@@ -4,9 +4,24 @@ import logger from '../config/logger.js'
 const ALLOWED_COUNTRIES = ['KE', 'UG', 'TZ', 'RW', 'BI', 'SS']
 
 export const geoMiddleware = (req, res, next) => {
-  const ip =
-    req.headers['x-forwarded-for']?.split(',')[0] ||
+  let ip =
+    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
     req.socket.remoteAddress
+
+  // Strip port if present (common in proxy setups like Azure Web Apps)
+  if (ip) {
+    if (ip.startsWith('[')) {
+      const closeBracket = ip.indexOf(']');
+      if (closeBracket !== -1) {
+        ip = ip.substring(1, closeBracket);
+      }
+    } else if (ip.includes('.')) {
+      const lastColon = ip.lastIndexOf(':');
+      if (lastColon !== -1 && lastColon > ip.lastIndexOf('.')) {
+        ip = ip.substring(0, lastColon);
+      }
+    }
+  }
 
   // Bypass for local/private IPs
   if (ip === 'localhost' || ip === '127.0.0.1' || ip === '::1' || ip?.startsWith('192.168.') || ip?.startsWith('10.')) {
