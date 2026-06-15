@@ -3,6 +3,7 @@ import Dataset from "../datasets/dataset.model.js";
 import UserVera from "../users/user.model.js";
 import Buyer from "../buyer/buyer.model.js";
 import Batch from "../tasks/task.batch.model.js";
+import GeoAccessLog from "./models/geoAccessLog.model.js";
 import { datasetService } from "../datasets/dataset.service.js";
 
 export const adminService = {
@@ -407,5 +408,40 @@ export const adminService = {
     ).populate('userId', 'name email profilePicture role status');
     if (!buyer) throw new Error("Buyer not found");
     return buyer;
+  },
+
+  getGeoAccessLogs: async () => {
+    return await GeoAccessLog.find().sort({ lastAccess: -1 });
+  },
+
+  getGeoAnalytics: async () => {
+    const totalUniqueVisitors = await GeoAccessLog.countDocuments();
+    
+    const countryBreakdown = await GeoAccessLog.aggregate([
+      {
+        $group: {
+          _id: "$country",
+          uniqueVisitors: { $sum: 1 },
+          totalHits: { $sum: "$hits" }
+        }
+      },
+      { $sort: { uniqueVisitors: -1 } }
+    ]);
+
+    const blockStatusBreakdown = await GeoAccessLog.aggregate([
+      {
+        $group: {
+          _id: "$isBlocked",
+          uniqueVisitors: { $sum: 1 },
+          totalHits: { $sum: "$hits" }
+        }
+      }
+    ]);
+
+    return {
+      totalUniqueVisitors,
+      countryBreakdown,
+      blockStatusBreakdown
+    };
   },
 };

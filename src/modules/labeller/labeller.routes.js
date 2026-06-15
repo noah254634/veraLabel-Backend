@@ -24,6 +24,7 @@ router.post('/tasks/:taskId/reject', labellerController.rejectTask);
 
 // Earnings & Stats
 router.get('/earnings', labellerController.getEarnings);
+router.post('/request-payout', labellerController.requestPayout);
 router.get('/performance', labellerController.getPerformance);
 router.get('/tier', labellerController.getTier);
 router.get('/stats', labellerController.getStats);

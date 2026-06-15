@@ -3,6 +3,15 @@ import logger from "../../config/logger.js";
 import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
+// In-memory cache for metadata and presigned URLs
+const metadataCache = new Map(); // r2Ref -> metadata
+const urlCache = new Map(); // `${r2Ref}_${expiresIn}` -> { url, expiresAt }
+
+// Deduplication maps for concurrent requests
+const activeMetadataRequests = new Map(); // r2Ref -> Promise
+const activeUrlRequests = new Map(); // `${r2Ref}_${expiresIn}` -> Promise
+const activeContentRequests = new Map(); // r2Ref -> Promise
+
 export const r2ContentFetcher = {
   fetchTaskContent: async (r2Ref, options = {}) => {
     try {
@@ -10,32 +19,49 @@ export const r2ContentFetcher = {
         throw new Error('r2Ref is required and must be a string');
       }
 
+      // If there's an active content request for this r2Ref, return it
+      if (activeContentRequests.has(r2Ref)) {
+        logger.debug('Reusing active task content request from R2', { r2Ref });
+        return activeContentRequests.get(r2Ref);
+      }
+
       logger.info('Fetching task content from R2', { r2Ref });
 
-      const command = new GetObjectCommand({
-        Bucket: process.env.R2_BUCKET_NAME,
-        Key: r2Ref
-      });
+      const fetchPromise = (async () => {
+        const command = new GetObjectCommand({
+          Bucket: process.env.R2_BUCKET_NAME,
+          Key: r2Ref
+        });
 
-      const object = await r2.send(command);
-      if (!object) {
-        throw new Error(`Content not found in R2: ${r2Ref}`);
+        const object = await r2.send(command);
+        if (!object) {
+          throw new Error(`Content not found in R2: ${r2Ref}`);
+        }
+
+        // Convert stream to buffer
+        const chunks = [];
+        for await (const chunk of object.Body) {
+          chunks.push(chunk);
+        }
+        const buffer = Buffer.concat(chunks);
+
+        logger.debug('Task content fetched from R2', {
+          r2Ref,
+          size: object.ContentLength,
+          etag: object.ETag
+        });
+
+        return buffer;
+      })();
+
+      activeContentRequests.set(r2Ref, fetchPromise);
+
+      try {
+        const result = await fetchPromise;
+        return result;
+      } finally {
+        activeContentRequests.delete(r2Ref);
       }
-
-      // Convert stream to buffer
-      const chunks = [];
-      for await (const chunk of object.Body) {
-        chunks.push(chunk);
-      }
-      const buffer = Buffer.concat(chunks);
-
-      logger.debug('Task content fetched from R2', {
-        r2Ref,
-        size: object.ContentLength,
-        etag: object.ETag
-      });
-
-      return buffer;
     } catch (error) {
       logger.error('Error fetching content from R2', {
         r2Ref,
@@ -51,24 +77,67 @@ export const r2ContentFetcher = {
         throw new Error('r2Ref is required and must be a string');
       }
 
+      const cacheKey = `${r2Ref}_${expiresIn}`;
+      const now = Date.now();
+
+      // Check if URL cache hit and still valid
+      if (urlCache.has(cacheKey)) {
+        const cached = urlCache.get(cacheKey);
+        if (cached.expiresAt > now) {
+          logger.debug('Presigned URL cache hit', { r2Ref, expiresIn });
+          return cached.url;
+        } else {
+          urlCache.delete(cacheKey);
+        }
+      }
+
+      // Check if there is already an active request for this presigned URL
+      if (activeUrlRequests.has(cacheKey)) {
+        logger.debug('Reusing active presigned URL request', { r2Ref, expiresIn });
+        return activeUrlRequests.get(cacheKey);
+      }
+
       logger.debug('Generating presigned URL for R2 content', { r2Ref, expiresIn });
 
-      const command = new GetObjectCommand({
-        Bucket: process.env.R2_BUCKET_NAME,
-        Key: r2Ref
-      });
+      const requestPromise = (async () => {
+        const command = new GetObjectCommand({
+          Bucket: process.env.R2_BUCKET_NAME,
+          Key: r2Ref
+        });
 
-      const url = await getSignedUrl(r2, command, {
-        expiresIn: expiresIn * 60
-      });
+        const url = await getSignedUrl(r2, command, {
+          expiresIn: expiresIn * 60
+        });
 
-      logger.debug('Presigned URL generated', {
-        r2Ref,
-        expiresIn,
-        urlLength: url.length
-      });
+        // Cache for up to 1 hour, or until 5 mins before expiration
+        const maxCacheTimeMs = 3600 * 1000; // 1 hour in ms
+        const expirationSafetyBufferMs = 300 * 1000; // 5 minutes safety buffer
+        const actualExpirationMs = expiresIn * 60 * 1000;
+        const cacheDuration = Math.max(0, Math.min(maxCacheTimeMs, actualExpirationMs - expirationSafetyBufferMs));
 
-      return url;
+        urlCache.set(cacheKey, {
+          url,
+          expiresAt: Date.now() + cacheDuration
+        });
+
+        logger.debug('Presigned URL generated and cached', {
+          r2Ref,
+          expiresIn,
+          urlLength: url.length,
+          cacheDurationMs: cacheDuration
+        });
+
+        return url;
+      })();
+
+      activeUrlRequests.set(cacheKey, requestPromise);
+
+      try {
+        const result = await requestPromise;
+        return result;
+      } finally {
+        activeUrlRequests.delete(cacheKey);
+      }
     } catch (error) {
       logger.error('Error generating presigned URL', {
         r2Ref,
@@ -84,29 +153,54 @@ export const r2ContentFetcher = {
         throw new Error('r2Ref is required');
       }
 
+      // Check static metadata cache first
+      if (metadataCache.has(r2Ref)) {
+        logger.debug('Content metadata cache hit', { r2Ref });
+        return metadataCache.get(r2Ref);
+      }
+
+      // Check if there is already an active request for this metadata
+      if (activeMetadataRequests.has(r2Ref)) {
+        logger.debug('Reusing active content metadata request', { r2Ref });
+        return activeMetadataRequests.get(r2Ref);
+      }
+
       logger.info('Fetching content metadata from R2', { r2Ref });
 
-      const command = new HeadObjectCommand({
-        Bucket: process.env.R2_BUCKET_NAME,
-        Key: r2Ref
-      });
+      const requestPromise = (async () => {
+        const command = new HeadObjectCommand({
+          Bucket: process.env.R2_BUCKET_NAME,
+          Key: r2Ref
+        });
 
-      const object = await r2.send(command);
+        const object = await r2.send(command);
 
-      const metadata = {
-        size: object.ContentLength,
-        type: object.ContentType,
-        etag: object.ETag,
-        lastModified: object.LastModified,
-        hash: object.ETag?.replace(/"/g, '') // Remove quotes from ETag
-      };
+        const metadata = {
+          size: object.ContentLength,
+          type: object.ContentType,
+          etag: object.ETag,
+          lastModified: object.LastModified,
+          hash: object.ETag?.replace(/"/g, '') // Remove quotes from ETag
+        };
 
-      logger.debug('Content metadata retrieved', {
-        r2Ref,
-        metadata
-      });
+        metadataCache.set(r2Ref, metadata);
 
-      return metadata;
+        logger.debug('Content metadata retrieved and cached', {
+          r2Ref,
+          metadata
+        });
+
+        return metadata;
+      })();
+
+      activeMetadataRequests.set(r2Ref, requestPromise);
+
+      try {
+        const result = await requestPromise;
+        return result;
+      } finally {
+        activeMetadataRequests.delete(r2Ref);
+      }
     } catch (error) {
       logger.error('Error fetching content metadata', {
         r2Ref,
@@ -128,7 +222,7 @@ export const r2ContentFetcher = {
       });
 
       const results = await Promise.allSettled(
-        r2Refs.map(ref => this.getPresignedUrl(ref, expiresIn))
+        r2Refs.map(ref => r2ContentFetcher.getPresignedUrl(ref, expiresIn))
       );
 
       const urls = r2Refs.map((ref, index) => {

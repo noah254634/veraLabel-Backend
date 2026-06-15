@@ -128,4 +128,7 @@ const SubmissionSchema = new mongoose.Schema({
   timestamps: true
 });
 
+SubmissionSchema.index({ submittedBy: 1, taskId: 1 });
+SubmissionSchema.index({ taskId: 1, submittedBy: 1 });
+
 export default mongoose.model("Submission", SubmissionSchema);

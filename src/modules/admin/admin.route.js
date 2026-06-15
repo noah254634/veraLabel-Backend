@@ -46,6 +46,10 @@ router.get("/buyers", adminController.getBuyers);
 router.put("/buyers/:id/approve", adminController.approveBuyer);
 router.put("/buyers/:id/reject", adminController.rejectBuyer);
 
+// Geo Access Tracking & Analytics
+router.get("/geo-access-logs", adminController.getGeoAccessLogs);
+router.get("/geo-analytics", adminController.getGeoAnalytics);
+
 router.use("/settings", settingsRouter);
 
 export default router;

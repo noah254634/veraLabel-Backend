@@ -202,4 +202,14 @@ export const adminController = {
     const buyer = await adminService.rejectBuyer(id, adminNotes);
     return ResponseHandler.success(res, { buyer }, "Buyer rejected successfully");
   }),
+
+  getGeoAccessLogs: asyncHandler(async (req, res) => {
+    const logs = await adminService.getGeoAccessLogs();
+    return ResponseHandler.success(res, { logs }, "Geo access logs fetched successfully");
+  }),
+
+  getGeoAnalytics: asyncHandler(async (req, res) => {
+    const analytics = await adminService.getGeoAnalytics();
+    return ResponseHandler.success(res, { analytics }, "Geo access analytics fetched successfully");
+  }),
 };

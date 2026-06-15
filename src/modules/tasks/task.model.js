@@ -69,7 +69,8 @@ const taskSchema = new Schema({
   batchId: {
     type: Schema.Types.ObjectId,
     ref: "Batch",
-    default: null
+    default: null,
+    index: true
   },
 
 
@@ -158,5 +159,6 @@ taskSchema.index({_id:1,status:1})
 taskSchema.index({ datasetId: 1, batchId: 1 })
 taskSchema.index({ r2_datasetUrl: 1 })
 taskSchema.index({ r2_input_taskRef: 1 })
+taskSchema.index({ batchId: 1, status: 1 })
 
 export default mongoose.model("Task", taskSchema);

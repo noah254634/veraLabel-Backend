@@ -1,5 +1,6 @@
 import geoip from 'geoip-lite'
 import logger from '../config/logger.js'
+import GeoAccessLog from '../modules/admin/models/geoAccessLog.model.js'
 
 const ALLOWED_COUNTRIES = ['KE', 'UG', 'TZ', 'RW', 'BI', 'SS']
 
@@ -128,6 +129,31 @@ export const geoMiddleware = (req, res, next) => {
   console.log("City", city);
   console.log("Timezone", timezone);
   console.log("Coords", ll);
+
+  // Log access if country is not Kenya
+  if (country !== 'KE') {
+    const isBlocked = !ALLOWED_COUNTRIES.includes(country) && !req.originalUrl.includes('/payments/paystack/webhook');
+    GeoAccessLog.findOneAndUpdate(
+      { ip },
+      {
+        $set: {
+          country: country || 'Unknown',
+          city: city || 'Unknown',
+          timezone: timezone || 'Unknown',
+          coordinates: ll || [],
+          userAgent: req.headers['user-agent'] || 'Unknown',
+          lastPath: req.originalUrl || req.path || 'Unknown',
+          lastMethod: req.method || 'GET',
+          isBlocked,
+          lastAccess: new Date()
+        },
+        $inc: { hits: 1 }
+      },
+      { upsert: true }
+    ).catch((err) => {
+      logger.error('Failed to log geo access attempt in middleware', { error: err.message });
+    });
+  }
 
   // Bypass for Paystack Webhooks
   if (req.originalUrl.includes('/payments/paystack/webhook')) {

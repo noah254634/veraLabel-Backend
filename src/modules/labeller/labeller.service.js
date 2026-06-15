@@ -3,6 +3,7 @@ import Task from '../tasks/task.model.js';
 import { settingsService } from '../admin/services/settings.service.js';
 import logger from '../../config/logger.js';
 import { normalizeLabellerProfilePayload, populateLabellerUser } from './labellerProfile.utils.js';
+import Payout from '../payments/models/payout.model.js';
 
 export const labellerService = {
   createLabellerProfile: async (userId, profileData) => {
@@ -184,6 +185,40 @@ export const labellerService = {
 
     if (!labeller) throw new Error('Labeller not found');
     return labeller.earnings;
+  },
+
+  requestPayout: async (labellerUserId, amount, method) => {
+    const labeller = await Labeller.findOne({ userId: labellerUserId });
+    if (!labeller) throw new Error('Labeller not found');
+
+    const available = labeller.earnings?.currentBalance || 0;
+    if (available < amount) {
+      throw new Error(`Insufficient funds. Available: $${available.toFixed(2)}, Requested: $${amount.toFixed(2)}`);
+    }
+
+    // Deduct earnings
+    const updatedEarnings = await labellerService.updateEarnings(labellerUserId, amount, 'payout');
+
+    // Create Payout record
+    const payout = await Payout.create({
+      recipientUserId: labellerUserId,
+      provider: 'paystack',
+      amount: amount,
+      currency: 'USD',
+      method: method?.toLowerCase() === 'm-pesa' || method?.toLowerCase() === 'mpesa' || method?.toLowerCase() === 'mobile_money' ? 'mobile_money' : 'bank_transfer',
+      destination: {
+        mobileNetwork: 'MPESA',
+        phoneNumber: ''
+      },
+      status: 'paid',
+      processedAt: new Date()
+    });
+
+    return {
+      success: true,
+      balance: updatedEarnings.currentBalance,
+      payout
+    };
   },
 
   promoteLabellerTier: async (labellerUserId, newTier) => {

@@ -9,6 +9,9 @@ import { r2ContentFetcher } from "../tasks/r2.contentFetcher.js";
 import Submission from '../tasks/task.submission.model.js';
 import Reviewer from './reviewer.model.js';
 import { normalizeContentType } from '../tasks/taskContentType.js';
+import Payout from '../payments/models/payout.model.js';
+import Batch from '../tasks/task.batch.model.js';
+import { taskService } from '../tasks/task.service.js';
 const updateReviewerMetrics = async (reviewerId, rating, isApproved, submissionId) => {
   try {
     let reviewer = await Reviewer.findById(reviewerId);
@@ -45,6 +48,22 @@ const updateReviewerMetrics = async (reviewerId, rating, isApproved, submissionI
   }
 };
 
+const getReviewerReward = async (batch) => {
+  if (!batch) return 0.15;
+  const dataset = await Dataset.findById(batch.datasetId).select("pricePerBatch").lean();
+  const pricePerBatch = dataset?.pricePerBatch || 0;
+  const totalTasks = batch.totalTasks || 1;
+  return pricePerBatch > 0 ? Number(((pricePerBatch * 0.20) / totalTasks).toFixed(4)) : 0.15;
+};
+
+const getTaskReward = async (batch) => {
+  if (!batch) return 0.42;
+  const dataset = await Dataset.findById(batch.datasetId).select("pricePerBatch").lean();
+  const pricePerBatch = dataset?.pricePerBatch || 0;
+  const totalTasks = batch.totalTasks || 1;
+  return pricePerBatch > 0 ? Number((pricePerBatch / totalTasks).toFixed(4)) : 0.42;
+};
+
 export const reviewerService = {
     getDashboardAnalytics: async (reviewerId) => {
         
@@ -74,6 +93,13 @@ export const reviewerService = {
       // Update reviewer metrics on their profile
       await updateReviewerMetrics(reviewerId, rating, true, submissionId);
 
+      const batch = submission.batchId ? await Batch.findById(submission.batchId) : null;
+      const reviewReward = await getReviewerReward(batch);
+      await Reviewer.updateOne(
+        { _id: reviewerId },
+        { $inc: { 'earnings.pending': reviewReward, 'earnings.total': reviewReward } }
+      );
+
       // Update parent Task
       const task = await Task.findById(submission.taskId);
       if (task) {
@@ -89,6 +115,18 @@ export const reviewerService = {
 
       const labeller = await Labeller.findById(submission.submittedBy);
       if (labeller) {
+        const taskReward = await getTaskReward(batch);
+        await Labeller.updateOne(
+          { _id: labeller._id },
+          { 
+            $inc: { 
+              'earnings.pendingPayment': -taskReward,
+              'earnings.currentBalance': taskReward,
+              'earnings.totalEarned': taskReward,
+              'performance.totalTasksCompleted': 1
+            } 
+          }
+        );
         await labellerService.updateRatingFromTaskReview(labeller.userId, rating);
         
         const promotionEligibility = await labellerService.checkPromotionEligibility(labeller.userId);
@@ -307,13 +345,16 @@ export const reviewerService = {
         status: 'rejected'
       });
 
+      const reviewer = await Reviewer.findById(reviewerId).select('earnings').lean();
+
       return {
         totalReviewed,
         averageScore: avgScore[0]?.avgScore || 0,
         pendingReviews: pendingCount,
         approved: approvedCount,
         rejected: rejectedCount,
-        approvalRate: totalReviewed > 0 ? (approvedCount / totalReviewed * 100).toFixed(2) + '%' : '0%'
+        approvalRate: totalReviewed > 0 ? (approvedCount / totalReviewed * 100).toFixed(2) + '%' : '0%',
+        earnings: reviewer?.earnings || { total: 0, pending: 0, paid: 0 }
       };
     } catch (err) {
       logger.error(`Service error getting reviewer stats: ${err.message}`);
@@ -468,6 +509,13 @@ export const reviewerService = {
       // Update reviewer metrics on their profile
       await updateReviewerMetrics(reviewerId, 5, true, submissionId);
 
+      const batch = submission.batchId ? await Batch.findById(submission.batchId) : null;
+      const reviewReward = await getReviewerReward(batch);
+      await Reviewer.updateOne(
+        { _id: reviewerId },
+        { $inc: { 'earnings.pending': reviewReward, 'earnings.total': reviewReward } }
+      );
+
       // Update parent Task
       const task = await Task.findById(submission.taskId);
       if (task) {
@@ -484,6 +532,18 @@ export const reviewerService = {
       // Update labeller profile ratings
       const labeller = await Labeller.findById(submission.submittedBy);
       if (labeller) {
+        const taskReward = await getTaskReward(batch);
+        await Labeller.updateOne(
+          { _id: labeller._id },
+          { 
+            $inc: { 
+              'earnings.pendingPayment': -taskReward,
+              'earnings.currentBalance': taskReward,
+              'earnings.totalEarned': taskReward,
+              'performance.totalTasksCompleted': 1
+            } 
+          }
+        );
         await labellerService.updateRatingFromTaskReview(labeller.userId, 5);
       }
 
@@ -513,15 +573,82 @@ export const reviewerService = {
       // Update reviewer metrics on their profile
       await updateReviewerMetrics(reviewerId, 1, false, submissionId);
 
+      const batch = submission.batchId ? await Batch.findById(submission.batchId) : null;
+      const reviewReward = await getReviewerReward(batch);
+      await Reviewer.updateOne(
+        { _id: reviewerId },
+        { $inc: { 'earnings.pending': reviewReward, 'earnings.total': reviewReward } }
+      );
+
       // Update labeller profile ratings
       const labeller = await Labeller.findById(submission.submittedBy);
       if (labeller) {
+        const taskReward = await getTaskReward(batch);
+        await Labeller.updateOne(
+          { _id: labeller._id },
+          {
+            $inc: { 
+              'performance.totalTasksRejected': 1,
+              'earnings.pendingPayment': -taskReward
+            }
+          }
+        );
         await labellerService.updateRatingFromTaskReview(labeller.userId, 1);
+      }
+
+      const task = await Task.findById(submission.taskId);
+      if (task) {
+        task.status = 'rejected';
+        task.isVerified = false;
+        task.verifiedBy = null;
+        task.rejectionReason = reason;
+        await task.save();
+
+        await taskService.returnTaskToPool(task._id.toString());
       }
 
       return { taskId: submissionId, status: 'rejected', reason };
     } catch (err) {
       logger.error(`Service error rejecting submission: ${err.message}`);
+      throw err;
+    }
+  },
+
+  requestPayout: async (reviewerId, amount, method) => {
+    try {
+      const reviewer = await Reviewer.findById(reviewerId);
+      if (!reviewer) throw new Error('Reviewer profile not found');
+
+      const available = reviewer.earnings?.pending || 0;
+      if (available < amount) {
+        throw new Error(`Insufficient funds. Available: $${available.toFixed(2)}, Requested: $${amount.toFixed(2)}`);
+      }
+
+      reviewer.earnings.pending = Number((available - amount).toFixed(2));
+      reviewer.earnings.paid = Number(((reviewer.earnings.paid || 0) + amount).toFixed(2));
+      await reviewer.save();
+
+      const payout = await Payout.create({
+        recipientUserId: reviewer.reviewerUserId,
+        provider: 'paystack',
+        amount: amount,
+        currency: 'USD',
+        method: method?.toLowerCase() === 'm-pesa' || method?.toLowerCase() === 'mpesa' || method?.toLowerCase() === 'mobile_money' ? 'mobile_money' : 'bank_transfer',
+        destination: {
+          mobileNetwork: 'MPESA',
+          phoneNumber: ''
+        },
+        status: 'paid',
+        processedAt: new Date()
+      });
+
+      return {
+        success: true,
+        earnings: reviewer.earnings,
+        payout
+      };
+    } catch (err) {
+      logger.error(`Service error requesting reviewer payout: ${err.message}`);
       throw err;
     }
   }

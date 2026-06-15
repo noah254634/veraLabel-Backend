@@ -128,5 +128,18 @@ export const reviewerController = {
       
       logger.info(`Task ${taskId} rejected by reviewer ${reviewerId}`);
       return ResponseHandler.success(res, response, "Task rejected successfully");
+  }),
+
+  requestPayout: asyncHandler(async (req, res) => {
+      const { amount, method } = req.body;
+      const reviewerId = await getReviewerProfileId(req.user._id);
+
+      if (!amount || amount <= 0) throw new AppError('Amount must be greater than 0', 400);
+      if (!method) throw new AppError('Payout method is required', 400);
+
+      const response = await reviewerService.requestPayout(reviewerId, Number(amount), method);
+      
+      logger.info(`Payout requested by reviewer ${reviewerId} of amount ${amount}`);
+      return ResponseHandler.success(res, response, "Payout requested successfully");
   })
 };

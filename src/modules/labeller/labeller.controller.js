@@ -59,6 +59,14 @@ export const labellerController = {
     return ResponseHandler.success(res, earnings, 'Earnings retrieved successfully');
   }),
 
+  requestPayout: asyncHandler(async (req, res) => {
+    validateRequiredFields(req.body, ['amount', 'method']);
+    const { amount, method } = req.body;
+    const userId = getUserIdFromRequest(req);
+    const result = await labellerService.requestPayout(userId, Number(amount), method);
+    return ResponseHandler.success(res, result, 'Payout requested successfully');
+  }),
+
   getTier: asyncHandler(async (req, res) => {
     const userId = getUserIdFromRequest(req);
     const tierInfo = await labellerService.getTier(userId);
