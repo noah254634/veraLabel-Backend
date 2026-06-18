@@ -17,6 +17,9 @@ router.get("/filter", datasetController.filterDatasets);
 router.post("/generateUploadUrl",datasetController.generateUploadUrl);
 router.get("/buyerSideDatasets",protectRoute,datasetController.buyerSideDatasets);
 
+// Get secure download link
+router.get("/:id/download", datasetController.downloadDataset);
+
 // Get a single dataset by ID
 router.get("/:id", datasetController.getDatasetById);
 

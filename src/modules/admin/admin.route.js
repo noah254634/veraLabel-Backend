@@ -37,6 +37,8 @@ router.put("/datasets/:id/priority", adminController.updateDatasetPriority);
 router.put("/datasets/:id/max-labellers", adminController.updateDatasetMaxLabellers);
 router.post("/datasets/unpublish/:id",adminController.unpublishDataset)
 router.post("/datasets/publish/:id",adminController.publishDataset)
+router.post("/datasets/:id/compile", adminController.compileDataset);
+router.post("/datasets/:id/evaluate-consensus", adminController.evaluateDatasetConsensus);
 router.put("/users/:id/rate",adminController.rateUser);
 router.put("/users/:id/unverify",adminController.unverifyUser);
 router.put("/users/:id/verify",adminController.verifyUser);

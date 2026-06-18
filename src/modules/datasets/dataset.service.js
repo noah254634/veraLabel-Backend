@@ -1,8 +1,9 @@
 import mongoose from "mongoose";
 import Dataset from "./dataset.model.js";
 import Invoice from "./invoice.model.js";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import Order from "../marketplace/order.model.js";
 import { v4 as uuidv4 } from "uuid";
 import { r2 } from "../../config/r2Upload.js";
 import UserVera from "../users/user.model.js";
@@ -149,10 +150,25 @@ export const datasetService = {
   },
 
   getAllDatasets: async (filter = {}) => {
-    return await Dataset.find(filter).sort({ createdAt: -1 });
+    const datasets = await Dataset.find(filter).sort({ createdAt: -1 });
+    return await Promise.all(datasets.map(async (d) => {
+      const obj = d.toObject ? d.toObject() : d;
+      const totalTasksCount = await Task.countDocuments({ datasetId: obj._id });
+      const verifiedTasksCount = await Task.countDocuments({ datasetId: obj._id, status: "verified" });
+      obj.totalTasksCount = totalTasksCount;
+      obj.verifiedTasksCount = verifiedTasksCount;
+      return obj;
+    }));
   },
   getDatasetById: async (id) => {
-    return await Dataset.findById(id);
+    const d = await Dataset.findById(id);
+    if (!d) return null;
+    const obj = d.toObject ? d.toObject() : d;
+    const totalTasksCount = await Task.countDocuments({ datasetId: obj._id });
+    const verifiedTasksCount = await Task.countDocuments({ datasetId: obj._id, status: "verified" });
+    obj.totalTasksCount = totalTasksCount;
+    obj.verifiedTasksCount = verifiedTasksCount;
+    return obj;
   },
   deleteDataset: async (id) => {
     if (!id) throw new Error("id is required");
@@ -541,4 +557,43 @@ export const datasetService = {
       }),
     };
   },
+
+  downloadDataset: async (datasetId, user) => {
+    if (!datasetId) throw new Error("Dataset ID is required");
+    const dataset = await Dataset.findById(datasetId);
+    if (!dataset) throw new Error("Dataset not found");
+
+    // Check authorization: Admin, or Buyer who owns/purchased it
+    if (user.role !== "admin") {
+      if (user.role !== "buyer") {
+        throw new Error("Unauthorized to access this dataset");
+      }
+      
+      const isOwner = dataset.buyerId && dataset.buyerId.toString() === user.id;
+      if (!isOwner) {
+        // Check if there is an approved marketplace purchase order
+        const order = await Order.findOne({
+          buyerId: user.id,
+          datasetId: dataset._id,
+          status: "approved"
+        });
+        if (!order) {
+          throw new Error("Unauthorized: you have not purchased or requested this dataset");
+        }
+      }
+    }
+
+    if (!dataset.downloadUrl) {
+      throw new Error("Dataset has not been compiled yet. Please check back later or request compilation.");
+    }
+
+    // Generate a secure presigned GET URL for the ZIP file (expires in 1 hour)
+    const getCommand = new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: dataset.downloadUrl
+    });
+
+    const presignedUrl = await getSignedUrl(r2, getCommand, { expiresIn: 3600 });
+    return presignedUrl;
+  }
 };

@@ -144,6 +144,97 @@ const isValidNormalizedBox = (box) => {
   );
 };
 
+const getEmbeddingR2Key = (imageR2Key) => {
+  const parts = imageR2Key.split('.');
+  if (parts.length > 1) {
+    parts[parts.length - 1] = 'npy';
+    return parts.join('.');
+  }
+  return `${imageR2Key}.npy`;
+};
+
+const triggerEmbeddingGeneration = async (task, datasetDoc) => {
+  try {
+    const mlUrl = process.env.FASTAPI_ML_URL;
+    if (!mlUrl) {
+      logger.warn('FASTAPI_ML_URL is not configured. Skipping embedding generation.', { taskId: task._id || task.id });
+      return;
+    }
+
+    const taskR2Url = task.r2_input_taskRef;
+    const embeddingKey = getEmbeddingR2Key(taskR2Url);
+
+    // 1. Generate a presigned GET URL for the raw image
+    const presignedGetUrl = await r2ContentFetcher.getPresignedUrl(taskR2Url);
+
+    // 2. Generate a presigned PUT URL for the embedding file
+    const putCommand = new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: embeddingKey,
+      ContentType: "application/octet-stream",
+    });
+    const presignedPutUrl = await getSignedUrl(r2, putCommand, {
+      expiresIn: 3600, // 1 hour
+    });
+
+    // 3. Dispatch POST request to the FastAPI ML service (asynchronous)
+    logger.info('Triggering ML service for SAM 2 embedding', {
+      taskId: task._id || task.id,
+      r2Key: taskR2Url,
+      embeddingKey,
+    });
+
+    fetch(`${mlUrl}/api/v1/generate-embedding`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        image_url: presignedGetUrl,
+        upload_url: presignedPutUrl,
+      }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        const text = await response.text();
+        logger.error('ML service failed to generate embedding', {
+          status: response.status,
+          response: text,
+          taskId: task._id || task.id,
+        });
+      } else {
+        logger.info('ML service successfully generated embedding', {
+          taskId: task._id || task.id,
+        });
+      }
+    }).catch((err) => {
+      logger.error('Error contacting ML service for embedding', {
+        error: err.message,
+        taskId: task._id || task.id,
+      });
+    });
+  } catch (error) {
+    logger.error('Failed to trigger embedding generation', {
+      error: error.message,
+      taskId: task?._id || task?.id,
+    });
+  }
+};
+
+const isValidPolygon = (polyObj) => {
+  if (!polyObj || typeof polyObj !== "object") return false;
+  const label = String(polyObj.label || "").trim();
+  if (label.length === 0) return false;
+  const polygon = polyObj.polygon;
+  if (!Array.isArray(polygon) || polygon.length < 3) return false;
+  for (const pt of polygon) {
+    if (!Array.isArray(pt) || pt.length !== 2) return false;
+    const x = Number(pt[0]);
+    const y = Number(pt[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  }
+  return true;
+};
+
 const validateAnnotationPayload = (annotation) => {
   if (!annotation || typeof annotation !== "object") {
     throw new Error("Invalid annotation payload: expected JSON object.");
@@ -163,18 +254,34 @@ const validateAnnotationPayload = (annotation) => {
     return;
   }
 
-  // ── Image / video tasks: validate bounding boxes ──
-  const { boundingBoxes } = annotation;
-  if (boundingBoxes == null) return;
-  if (!Array.isArray(boundingBoxes)) {
-    throw new Error("Invalid annotation payload: 'boundingBoxes' must be an array.");
+  // ── Image / video tasks: validate bounding boxes or polygons ──
+  const { boundingBoxes, polygons } = annotation;
+  if (boundingBoxes == null && polygons == null) {
+    throw new Error("Invalid annotation payload: must provide either 'boundingBoxes' or 'polygons' for image/video annotations.");
   }
-  if (boundingBoxes.length === 0) {
-    throw new Error("Invalid annotation payload: 'boundingBoxes' cannot be empty.");
+  if (boundingBoxes != null) {
+    if (!Array.isArray(boundingBoxes)) {
+      throw new Error("Invalid annotation payload: 'boundingBoxes' must be an array.");
+    }
+    if (boundingBoxes.length === 0 && (polygons == null || polygons.length === 0)) {
+      throw new Error("Invalid annotation payload: 'boundingBoxes' cannot be empty unless 'polygons' is provided.");
+    }
+    const hasInvalidBox = boundingBoxes.some((box) => !isValidNormalizedBox(box));
+    if (hasInvalidBox) {
+      throw new Error("Invalid annotation payload: one or more bounding boxes are malformed.");
+    }
   }
-  const hasInvalidBox = boundingBoxes.some((box) => !isValidNormalizedBox(box));
-  if (hasInvalidBox) {
-    throw new Error("Invalid annotation payload: one or more bounding boxes are malformed.");
+  if (polygons != null) {
+    if (!Array.isArray(polygons)) {
+      throw new Error("Invalid annotation payload: 'polygons' must be an array.");
+    }
+    if (polygons.length === 0 && (boundingBoxes == null || boundingBoxes.length === 0)) {
+      throw new Error("Invalid annotation payload: 'polygons' cannot be empty unless 'boundingBoxes' is provided.");
+    }
+    const hasInvalidPolygon = polygons.some((poly) => !isValidPolygon(poly));
+    if (hasInvalidPolygon) {
+      throw new Error("Invalid annotation payload: one or more polygons are malformed.");
+    }
   }
 };
 
@@ -548,6 +655,15 @@ export const taskService = {
             duplicateCount,
             failedCount: tasksToInsert.length - insertedCount,
           });
+
+          // Trigger embedding generation for newly inserted tasks
+          if (datasetDoc && String(datasetDoc.contentType).toLowerCase() === 'image') {
+            for (const task of insertResult) {
+              triggerEmbeddingGeneration(task, datasetDoc).catch(err => {
+                logger.error('Failed to trigger embedding generation in insertResult', { error: err.message, taskId: task._id });
+              });
+            }
+          }
         } catch (insertError) {
           const isBulkDuplicate = insertError.writeErrors && 
             insertError.writeErrors.length > 0 && 
@@ -566,6 +682,15 @@ export const taskService = {
               insertedCount,
               duplicateCount,
             });
+
+            // Trigger embedding generation for newly inserted tasks in the catch block
+            if (datasetDoc && String(datasetDoc.contentType).toLowerCase() === 'image') {
+              for (const task of insertedDocs) {
+                triggerEmbeddingGeneration(task, datasetDoc).catch(err => {
+                  logger.error('Failed to trigger embedding generation in insertedDocs', { error: err.message, taskId: task._id });
+                });
+              }
+            }
           } else {
             failedCount = failedWriteCount;
             logger.error('Failed to insert tasks due to database error', {
@@ -787,6 +912,19 @@ export const taskService = {
 
           const presignedUrl = await r2ContentFetcher.getPresignedUrl(taskR2Url);
           taskObject = { url: presignedUrl };
+
+          // Check if a SAM 2 embedding file exists right next to the image
+          if (contentType === 'image') {
+            const embeddingKey = getEmbeddingR2Key(taskR2Url);
+            try {
+              await r2ContentFetcher.getContentMetadata(embeddingKey);
+              const embeddingUrl = await r2ContentFetcher.getPresignedUrl(embeddingKey);
+              taskObject.embeddingUrl = embeddingUrl;
+              logger.info('Generated presigned URL for SAM 2 embedding', { taskId: id, embeddingKey });
+            } catch (e) {
+              logger.debug('No embedding found for image task', { taskId: id, error: e.message });
+            }
+          }
         } catch (presignError) {
           logger.warn('Could not generate presigned URL or verify media task in R2', { taskId: id, error: presignError.message });
           taskObject = { url: null, error: `Media verification failed: ${presignError.message}` };

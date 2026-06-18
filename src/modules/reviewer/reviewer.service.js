@@ -12,6 +12,7 @@ import { normalizeContentType } from '../tasks/taskContentType.js';
 import Payout from '../payments/models/payout.model.js';
 import Batch from '../tasks/task.batch.model.js';
 import { taskService } from '../tasks/task.service.js';
+import { NotificationService } from '../notifications/notification.service.js';
 const updateReviewerMetrics = async (reviewerId, rating, isApproved, submissionId) => {
   try {
     let reviewer = await Reviewer.findById(reviewerId);
@@ -111,6 +112,29 @@ export const reviewerService = {
         task.reviewedAt = new Date();
         task.reviewComment = comment;
         await task.save();
+
+        try {
+          const datasetId = task.datasetId;
+          const totalTasksCount = await Task.countDocuments({ datasetId });
+          const verifiedTasksCount = await Task.countDocuments({ datasetId, status: 'verified' });
+          if (totalTasksCount > 0 && verifiedTasksCount === totalTasksCount) {
+            const dataset = await Dataset.findById(datasetId);
+            if (dataset) {
+              const admins = await UserVera.find({ role: 'admin', deletedAt: null });
+              if (admins.length > 0) {
+                const adminIds = admins.map(a => a._id);
+                await NotificationService.sendToMany(adminIds, {
+                  title: "Dataset Ready for Compile",
+                  body: `Dataset "${dataset.name}" has reached 100% verification and is ready to be compiled.`,
+                  data: { datasetId: dataset._id.toString(), type: "dataset_ready_compile" }
+                });
+                logger.info(`Notified ${admins.length} admins that dataset ${dataset.name} is ready for compile`);
+              }
+            }
+          }
+        } catch (notifyErr) {
+          logger.error("Failed to process compile notifications: " + notifyErr.message);
+        }
       }
 
       const labeller = await Labeller.findById(submission.submittedBy);

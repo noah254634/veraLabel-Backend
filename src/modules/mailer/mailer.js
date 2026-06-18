@@ -1,20 +1,46 @@
 import nodemailer from "nodemailer";
 import {ENV} from "../../config/env.js";
 import logger from "../../config/logger.js";
-const transporter = nodemailer.createTransport({
-  host: "smtp.resend.com",
-  port: 465,
-  secure: true,
-  requireTLS: true,
-  auth: {
-    user: "resend",
-    pass: ENV({ required: ["RESEND_API_KEY"] }).resend_api_key,
-  },
-});
+
+let transporter;
+
+const getTransporter = () => {
+  const { emails_enabled, resend_api_key } = ENV();
+
+  if (!emails_enabled) {
+    return null;
+  }
+
+  if (!resend_api_key) {
+    throw new Error("RESEND_API_KEY is required when EMAILS_ENABLED is true");
+  }
+
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      host: "smtp.resend.com",
+      port: 465,
+      secure: true,
+      requireTLS: true,
+      auth: {
+        user: "resend",
+        pass: resend_api_key,
+      },
+    });
+  }
+
+  return transporter;
+};
 
 const sendEmail = async ({ to, subject, html }) => {
   try {
-    const info = await transporter.sendMail({
+    const activeTransporter = getTransporter();
+
+    if (!activeTransporter) {
+      logger.info(`Email disabled; skipped sending to ${to} with subject ${subject}`);
+      return { skipped: true };
+    }
+
+    const info = await activeTransporter.sendMail({
       from: "onboarding@resend.dev",
       to,
       subject,

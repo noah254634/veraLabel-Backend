@@ -5,6 +5,23 @@ import Buyer from "../buyer/buyer.model.js";
 import Batch from "../tasks/task.batch.model.js";
 import GeoAccessLog from "./models/geoAccessLog.model.js";
 import { datasetService } from "../datasets/dataset.service.js";
+import Task from "../tasks/task.model.js";
+import Submission from "../tasks/task.submission.model.js";
+import { NotificationService } from "../notifications/notification.service.js";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { r2 } from "../../config/r2Upload.js";
+import logger from "../../config/logger.js";
+
+const enrichDatasetWithTaskCounts = async (datasetDoc) => {
+  if (!datasetDoc) return null;
+  const dataset = datasetDoc.toObject ? datasetDoc.toObject() : datasetDoc;
+  const totalTasksCount = await Task.countDocuments({ datasetId: dataset._id });
+  const verifiedTasksCount = await Task.countDocuments({ datasetId: dataset._id, status: "verified" });
+  dataset.totalTasksCount = totalTasksCount;
+  dataset.verifiedTasksCount = verifiedTasksCount;
+  return dataset;
+};
 
 export const adminService = {
   promoteToReviewerById: async (id) => {
@@ -81,7 +98,7 @@ export const adminService = {
   },
   updateDatasetPrice: async (id, newPrice) => {
     if (!id) throw new Error("Id not found");
-    if (!newPrice) throw new Error("Price not found");
+    if (newPrice === undefined) throw new Error("Price not found");
     const dataset = await Dataset.findByIdAndUpdate(
       id,
       { price: newPrice },
@@ -102,22 +119,22 @@ export const adminService = {
   pendingDatasets: async () => {
     const datasets = await Dataset.find({ status: "pending" }).sort({ createdAt: -1 });
     if (!datasets) throw new Error("No pending datasets found");
-    return datasets;
+    return await Promise.all(datasets.map(enrichDatasetWithTaskCounts));
   },
   approvedDatasets: async () => {
     const datasets = await Dataset.find({ status: "approved" }).sort({ createdAt: -1 });
     if (!datasets) throw new Error("No approved datasets found");
-    return datasets;
+    return await Promise.all(datasets.map(enrichDatasetWithTaskCounts));
   },
   rejectedDatasets: async () => {
     const datasets = await Dataset.find({ status: "rejected" }).sort({ createdAt: -1 });
     if (!datasets) throw new Error("No rejected datasets found");
-    return datasets;
+    return await Promise.all(datasets.map(enrichDatasetWithTaskCounts));
   },
   flaggedDatasets: async () => {
     const datasets = await Dataset.find({ "isFlagged.status": true }).sort({ createdAt: -1 });
     if (!datasets) throw new Error("No flagged datasets found");
-    return datasets;
+    return await Promise.all(datasets.map(enrichDatasetWithTaskCounts));
   },
   banUserById: async (id, reason) => {
     if (!id) throw new Error("Id not found");
@@ -444,4 +461,289 @@ export const adminService = {
       blockStatusBreakdown
     };
   },
+
+  compileDataset: async (datasetId) => {
+    if (!datasetId) throw new Error("Dataset ID is required");
+    const dataset = await Dataset.findById(datasetId);
+    if (!dataset) throw new Error("Dataset not found");
+
+    // 1. Verify completeness
+    const totalTasks = await Task.countDocuments({ datasetId });
+    const verifiedTasks = await Task.countDocuments({ datasetId, status: "verified" });
+    if (totalTasks === 0 || verifiedTasks < totalTasks) {
+      throw new Error(`Dataset is not 100% completed and verified yet (${verifiedTasks}/${totalTasks} tasks verified).`);
+    }
+
+    // 2. Check submissions per task
+    const tasks = await Task.find({ datasetId });
+    const requiredSubmissions = dataset.maxLabellers || 1;
+
+    // Get all approved submissions
+    const submissions = await Submission.find({ datasetId, status: "approved" })
+      .populate({
+        path: "submittedBy",
+        populate: { path: "userId", select: "trustScore" }
+      });
+
+    // Group submissions by task ID
+    const subMap = {};
+    for (const sub of submissions) {
+      const tId = sub.taskId.toString();
+      if (!subMap[tId]) subMap[tId] = [];
+      subMap[tId].push(sub);
+    }
+
+    // Verify task submission requirements
+    for (const task of tasks) {
+      const taskSubs = subMap[task._id.toString()] || [];
+      if (taskSubs.length < requiredSubmissions) {
+        throw new Error(`Task "${task.taskName}" only has ${taskSubs.length}/${requiredSubmissions} approved submissions.`);
+      }
+    }
+
+    // 3. Build the assembly payload with temporary presigned GET URLs
+    const taskItems = [];
+    for (const task of tasks) {
+      const taskSubs = subMap[task._id.toString()] || [];
+      
+      // Generate presigned GET URL for the task input file
+      const getInputCommand = new GetObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME,
+        Key: task.r2_input_taskRef
+      });
+      const inputUrl = await getSignedUrl(r2, getInputCommand, { expiresIn: 3600 }); // 1 hour
+
+      const submissionItems = [];
+      for (const sub of taskSubs) {
+        // Generate presigned GET URL for the submission annotation file
+        const getOutputCommand = new GetObjectCommand({
+          Bucket: process.env.R2_BUCKET_NAME,
+          Key: sub.r2_output_key
+        });
+        const outputUrl = await getSignedUrl(r2, getOutputCommand, { expiresIn: 3600 }); // 1 hour
+
+        // Safely extract trust score
+        const trustScore = sub.submittedBy?.userId?.trustScore ?? 0.5;
+
+        submissionItems.push({
+          submissionId: sub.submissionId,
+          outputUrl,
+          labellerTrustScore: trustScore
+        });
+      }
+
+      taskItems.push({
+        taskId: task.taskId,
+        taskName: task.taskName,
+        split: task.split,
+        inputUrl,
+        fileName: task.taskName,
+        submissions: submissionItems
+      });
+    }
+
+    const payload = {
+      datasetId: dataset._id.toString(),
+      datasetName: dataset.name,
+      dataType: dataset.datasetType || "text",
+      labellingMethod: dataset.labellingMethod || "classification",
+      tasks: taskItems
+    };
+
+    // 4. Call FastAPI microservice
+    const fastApiUrl = `${process.env.CLOUDFLARE_WORKER_URL}/assemble`;
+    const internalSecret = process.env.INTERNAL_SECRET;
+
+    logger.info(`Triggering FastAPI compiler for dataset ${datasetId} at ${fastApiUrl}`);
+    
+    let response;
+    try {
+      response = await fetch(fastApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Vera-Signature': internalSecret
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch (fetchErr) {
+      throw new Error(`Network error calling compiler: ${fetchErr.message}`);
+    }
+
+    const responseData = await response.json();
+    if (!response.ok) {
+      throw new Error(`Compiler error: ${responseData.message || JSON.stringify(responseData)}`);
+    }
+
+    // 5. Update Dataset
+    dataset.downloadUrl = responseData.r2Key;
+    dataset.status = "completed";
+    await dataset.save({ validateBeforeSave: false });
+
+    // 6. Notify the Buyer
+    try {
+      const buyer = await Buyer.findById(dataset.buyerId);
+      if (buyer && buyer.userId) {
+        await NotificationService.sendToUser(buyer.userId, {
+          title: "Dataset Compiled and Ready",
+          body: `Your dataset "${dataset.name}" has been compiled and is ready for download.`,
+          data: { datasetId: dataset._id.toString(), type: "dataset_compiled" }
+        });
+        logger.info(`Notified buyer ${buyer.userId} of successful compilation of dataset ${dataset.name}`);
+      }
+    } catch (notifyErr) {
+      logger.error(`Failed to notify buyer of dataset compile: ${notifyErr.message}`);
+    }
+
+    return {
+      success: true,
+      message: responseData.message,
+      r2Key: responseData.r2Key,
+      sizeBytes: responseData.sizeBytes
+    };
+  },
+
+  evaluateDatasetConsensus: async (datasetId) => {
+    if (!datasetId) throw new Error("Dataset ID is required");
+    const dataset = await Dataset.findById(datasetId);
+    if (!dataset) throw new Error("Dataset not found");
+
+    const tasks = await Task.find({ datasetId });
+    const submissions = await Submission.find({ datasetId })
+      .populate({
+        path: "submittedBy",
+        populate: { path: "userId", select: "trustScore" }
+      });
+
+    // Group submissions by task ID
+    const subMap = {};
+    for (const sub of submissions) {
+      const tId = sub.taskId.toString();
+      if (!subMap[tId]) subMap[tId] = [];
+      subMap[tId].push(sub);
+    }
+
+    const taskItems = [];
+    for (const task of tasks) {
+      const taskSubs = subMap[task._id.toString()] || [];
+      if (taskSubs.length === 0) continue;
+
+      const submissionItems = [];
+      for (const sub of taskSubs) {
+        // Generate presigned GET URL for the submission annotation file
+        const getOutputCommand = new GetObjectCommand({
+          Bucket: process.env.R2_BUCKET_NAME,
+          Key: sub.r2_output_key
+        });
+        const outputUrl = await getSignedUrl(r2, getOutputCommand, { expiresIn: 3600 }); // 1 hour
+
+        const trustScore = sub.submittedBy?.userId?.trustScore ?? 0.5;
+
+        submissionItems.push({
+          submissionId: sub.submissionId,
+          outputUrl,
+          labellerTrustScore: trustScore
+        });
+      }
+
+      taskItems.push({
+        taskId: task.taskId,
+        submissions: submissionItems
+      });
+    }
+
+    if (taskItems.length === 0) {
+      throw new Error("No submissions found to evaluate for this dataset.");
+    }
+
+    const payload = {
+      dataType: dataset.datasetType || "text",
+      labellingMethod: dataset.labellingMethod || "classification",
+      matchThreshold: 0.5, // Default matching threshold
+      tasks: taskItems
+    };
+
+    const fastApiUrl = `${process.env.CLOUDFLARE_WORKER_URL}/consensus/evaluate`;
+    const internalSecret = process.env.INTERNAL_SECRET;
+
+    logger.info(`Triggering FastAPI consensus evaluator for dataset ${datasetId} at ${fastApiUrl}`);
+
+    let response;
+    try {
+      response = await fetch(fastApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Vera-Signature': internalSecret
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch (fetchErr) {
+      throw new Error(`Network error calling consensus evaluator: ${fetchErr.message}`);
+    }
+
+    const responseData = await response.json();
+    if (!response.ok) {
+      throw new Error(`Consensus evaluator error: ${responseData.message || JSON.stringify(responseData)}`);
+    }
+
+    // Process the results: update submission verificationScores and flag outliers
+    const results = responseData.results || [];
+    for (const result of results) {
+      const taskDoc = await Task.findOne({ taskId: result.task_id || result.taskId });
+      if (!taskDoc) continue;
+
+      const pairwise = result.pairwise_iou || result.pairwiseIoU || {};
+      const outliers = result.outliers || [];
+
+      // Update individual submission verificationScores based on average pairwise agreement
+      const taskSubs = subMap[taskDoc._id.toString()] || [];
+      for (const sub of taskSubs) {
+        let scoreSum = 0.0;
+        let scoreCount = 0;
+        
+        for (const [key, val] of Object.entries(pairwise)) {
+          if (key.includes(sub.submissionId)) {
+            scoreSum += val;
+            scoreCount++;
+          }
+        }
+        
+        const finalScore = scoreCount > 0 ? (scoreSum / scoreCount) : 1.0;
+        sub.verificationScore = parseFloat(finalScore.toFixed(4));
+        
+        // Flag outlier submissions as under_review
+        if (outliers.includes(sub.submissionId)) {
+          sub.status = "under_review";
+          logger.warn(`Submission ${sub.submissionId} flagged as consensus outlier. Routed to review queue.`);
+        }
+        
+        await sub.save();
+      }
+    }
+
+    // Calculate dataset-wide consensusIoU
+    let taskScoreSum = 0.0;
+    let taskScoreCount = 0;
+    for (const result of results) {
+      const cScore = result.consensus_score !== undefined ? result.consensus_score : result.consensusScore;
+      if (typeof cScore === 'number') {
+        taskScoreSum += cScore;
+        taskScoreCount++;
+      }
+    }
+    if (taskScoreCount > 0) {
+      dataset.consensusIoU = parseFloat((taskScoreSum / taskScoreCount).toFixed(4));
+      await dataset.save();
+      logger.info(`Updated dataset ${datasetId} consensusIoU: ${dataset.consensusIoU}`);
+    }
+
+    return {
+      success: true,
+      message: "Consensus evaluation completed and database updated.",
+      consensusIoU: dataset.consensusIoU,
+      results
+    };
+  }
 };
+

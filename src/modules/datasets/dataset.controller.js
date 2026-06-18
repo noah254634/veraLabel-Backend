@@ -98,4 +98,10 @@ export const datasetController = {
 
     return ResponseHandler.created(res, { response }, "Dataset created successfully");
   }),
+
+  downloadDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const downloadUrl = await datasetService.downloadDataset(id, req.user);
+    return ResponseHandler.success(res, { downloadUrl }, "Secure download URL generated successfully");
+  }),
 };

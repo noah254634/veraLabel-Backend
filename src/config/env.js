@@ -45,6 +45,14 @@ export const isTryCloudflareOrigin = (origin) => {
 
 const normalizeOrigin = (origin) => origin.trim().replace(/\/+$/, "");
 
+const parseBoolean = (value, defaultValue = false) => {
+    if (value == null || value === "") {
+        return defaultValue;
+    }
+
+    return ["true", "1", "yes", "on"].includes(String(value).toLowerCase());
+};
+
 const buildEnv = (processEnv = process.env, options = {}) => {
     const { debug = false } = options;
     
@@ -71,6 +79,7 @@ const buildEnv = (processEnv = process.env, options = {}) => {
         flutterwave_key: processEnv.FLUTTERWAVE_KEY,
         flutterwave_secret: processEnv.FLUTTERWAVE_SECRET,
         resend_api_key: processEnv.RESEND_API_KEY,
+        emails_enabled: parseBoolean(processEnv.EMAILS_ENABLED, true),
         email_user: processEnv.EMAIL_USER,
         paystack_public_key: processEnv.PAYSTACK_PUBLIC_KEY,
         paystack_secret_key: processEnv.PAYSTACK_SECRET_KEY,

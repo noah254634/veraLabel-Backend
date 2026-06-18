@@ -45,8 +45,8 @@ export const adminController = {
   updateDatasetPrice: asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { price } = req.body;
-    if (!price) throw new AppError("Price not found", 400);
-    const dataset = await adminService.updateDatasetPrice(id, parseInt(price));
+    if (price === undefined) throw new AppError("Price not found", 400);
+    const dataset = await adminService.updateDatasetPrice(id, parseFloat(price));
     return ResponseHandler.success(res, { dataset }, "Dataset price updated");
   }),
 
@@ -211,5 +211,17 @@ export const adminController = {
   getGeoAnalytics: asyncHandler(async (req, res) => {
     const analytics = await adminService.getGeoAnalytics();
     return ResponseHandler.success(res, { analytics }, "Geo access analytics fetched successfully");
+  }),
+
+  compileDataset: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const result = await adminService.compileDataset(id);
+    return ResponseHandler.success(res, result, "Dataset compilation completed successfully");
+  }),
+
+  evaluateDatasetConsensus: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const result = await adminService.evaluateDatasetConsensus(id);
+    return ResponseHandler.success(res, result, "Consensus evaluation completed successfully");
   }),
 };

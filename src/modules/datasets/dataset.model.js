@@ -233,6 +233,10 @@ const datasetSchema = new mongoose.Schema(
       ref: "DatasetInstruction",
       required: false,
     },
+    consensusIoU: {
+      type: Number,
+      default: null,
+    },
   },
   {
     timestamps: true,

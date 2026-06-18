@@ -11,6 +11,9 @@
 		},
 		{
 			"path": "../../../../veralabel-splitter"
+		},
+		{
+			"path": "../../../../veralabel_cv_model"
 		}
 	],
 	"settings": {
