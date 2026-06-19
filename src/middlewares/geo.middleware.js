@@ -139,7 +139,7 @@ export const geoMiddleware = (req, res, next) => {
 
 
 
-  // Allow unrestricted access to specific paths (e.g. login, webhooks, buyers)
+  // Allow unrestricted access to specific paths (e.g. login, webhooks, buyers, admins)
   const allowedPrefixes = [
     '/api/v1/auth',
     '/api/v1/ping',
@@ -148,7 +148,8 @@ export const geoMiddleware = (req, res, next) => {
     '/api/v1/datasets',
     '/api/v1/payments',
     '/api/v1/users', // Allow viewing user profile
-    '/payments/paystack/webhook' // Paystack bypass
+    '/payments/paystack/webhook', // Paystack bypass
+    '/admin' // Allow all admin routes (including nested admin paths like /tasks/.../admin/...)
   ];
   
   const isPublicRoute = allowedPrefixes.some(prefix => req.originalUrl.startsWith(prefix) || req.originalUrl.includes(prefix));
