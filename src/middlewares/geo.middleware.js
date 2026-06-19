@@ -154,7 +154,11 @@ export const geoMiddleware = (req, res, next) => {
   // Also check if they try to access task-specific labeller routes directly
   const isRestrictedRoute = restrictedPrefixes.some(prefix => req.originalUrl.startsWith(prefix));
 
-  // Log access if country is not Kenya (just for analytics)
+  // Log all geo requests professionally for visibility (including admins)
+  const isBlockedStatus = !ALLOWED_COUNTRIES.includes(country) && isRestrictedRoute;
+  logger.info(`Geo Access: IP ${ip} -> ${country} (${city || 'unknown'}). Route: ${req.originalUrl} | Blocked: ${isBlockedStatus}`);
+
+  // Log access if country is not Kenya (just for analytics database)
   if (country !== 'KE') {
     const isBlocked = !ALLOWED_COUNTRIES.includes(country) && isRestrictedRoute;
     GeoAccessLog.findOneAndUpdate(
