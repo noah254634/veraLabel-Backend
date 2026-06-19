@@ -77,13 +77,14 @@ export const geoMiddleware = (req, res, next) => {
     return next();
   }
 
-  // Extract IP: Prioritize Forwarded headers over req.ip (fixes Azure/Proxies)
-  const rawIp =
-    req.headers['cf-connecting-ip'] ||
-    req.headers['x-client-ip'] ||
-    req.headers['x-arr-clientaddr'] ||
-    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
-    req.ip ||
+  // Get IP (Prioritize our custom cloudflare proxy header, then standard proxy headers)
+  const rawIp = 
+    req.headers['x-cloudflare-ip'] ||
+    req.headers['cf-connecting-ip'] || 
+    req.headers['x-client-ip'] || 
+    req.headers['x-arr-clientaddr'] || 
+    req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+    req.ip || 
     req.socket.remoteAddress;
 
   const ip = cleanIp(rawIp);
