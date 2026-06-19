@@ -31,6 +31,7 @@ router.get("/ping", async (req, res) => {
   try {
     const health = await analyzeSystemHealth();
     const clientIp = 
+      req.headers['x-cloudflare-ip'] ||
       req.headers['cf-connecting-ip'] ||
       req.headers['x-client-ip'] ||
       req.headers['x-arr-clientaddr'] ||

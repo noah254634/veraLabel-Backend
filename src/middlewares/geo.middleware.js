@@ -77,7 +77,6 @@ export const geoMiddleware = (req, res, next) => {
     return next();
   }
 
-  // Get IP (Prioritize our custom cloudflare proxy header, then standard proxy headers)
   const rawIp = 
     req.headers['x-cloudflare-ip'] ||
     req.headers['cf-connecting-ip'] || 
@@ -118,10 +117,10 @@ export const geoMiddleware = (req, res, next) => {
 
   let country, city, timezone, ll;
 
-  // Prioritize Cloudflare IP Country header if available
-  if (req.headers['cf-ipcountry'] && req.headers['cf-ipcountry'] !== 'XX') {
-    country = req.headers['cf-ipcountry'];
-    city = 'Unknown (CF Header)';
+  const cfCountry = req.headers['x-cloudflare-country'] || req.headers['cf-ipcountry'];
+  if (cfCountry && cfCountry !== 'XX') {
+    country = cfCountry;
+    city = req.headers['x-cloudflare-city'] || 'Unknown (CF Header)';
     timezone = 'Unknown';
     ll = [];
   } else {
@@ -138,9 +137,6 @@ export const geoMiddleware = (req, res, next) => {
     ll = geo.ll;
   }
 
-
-
-  // ONLY block specific routes meant for Labellers. All other routes (auth, admins, buyers) are allowed by default.
   const restrictedPrefixes = [
     '/api/v1/labeller',
     '/api/v1/onboarding',
@@ -152,10 +148,8 @@ export const geoMiddleware = (req, res, next) => {
     '/api/v1/tasks/flag'
   ];
   
-  // Also check if they try to access task-specific labeller routes directly
   const isRestrictedRoute = restrictedPrefixes.some(prefix => req.originalUrl.startsWith(prefix));
 
-  // Log all geo requests professionally for visibility (including admins)
   const isBlockedStatus = !ALLOWED_COUNTRIES.includes(country) && isRestrictedRoute;
   logger.info(`Geo Access: IP ${ip} -> ${country} (${city || 'unknown'}). Route: ${req.originalUrl} | Blocked: ${isBlockedStatus}`);
 
