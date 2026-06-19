@@ -149,7 +149,9 @@ export const geoMiddleware = (req, res, next) => {
     '/api/v1/payments',
     '/api/v1/users', // Allow viewing user profile
     '/payments/paystack/webhook', // Paystack bypass
-    '/admin' // Allow all admin routes (including nested admin paths like /tasks/.../admin/...)
+    '/admin', // Allow all admin routes (including nested admin paths like /tasks/.../admin/...)
+    '/api/v1/analytics',
+    '/api/v1/notifications'
   ];
   
   const isPublicRoute = allowedPrefixes.some(prefix => req.originalUrl.startsWith(prefix) || req.originalUrl.includes(prefix));
