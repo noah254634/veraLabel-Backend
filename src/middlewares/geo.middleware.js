@@ -139,26 +139,24 @@ export const geoMiddleware = (req, res, next) => {
 
 
 
-  // Allow unrestricted access to specific paths (e.g. login, webhooks, buyers, admins)
-  const allowedPrefixes = [
-    '/api/v1/auth',
-    '/api/v1/ping',
-    '/api/v1/buyer',
-    '/api/v1/marketplace',
-    '/api/v1/datasets',
-    '/api/v1/payments',
-    '/api/v1/users', // Allow viewing user profile
-    '/payments/paystack/webhook', // Paystack bypass
-    '/admin', // Allow all admin routes (including nested admin paths like /tasks/.../admin/...)
-    '/api/v1/analytics',
-    '/api/v1/notifications'
+  // ONLY block specific routes meant for Labellers. All other routes (auth, admins, buyers) are allowed by default.
+  const restrictedPrefixes = [
+    '/api/v1/labeller',
+    '/api/v1/onboarding',
+    '/api/v1/tasks/claim-batch',
+    '/api/v1/tasks/submit',
+    '/api/v1/tasks/my-active-batch',
+    '/api/v1/tasks/assign',
+    '/api/v1/tasks/generate-submission-url',
+    '/api/v1/tasks/flag'
   ];
   
-  const isPublicRoute = allowedPrefixes.some(prefix => req.originalUrl.startsWith(prefix) || req.originalUrl.includes(prefix));
+  // Also check if they try to access task-specific labeller routes directly
+  const isRestrictedRoute = restrictedPrefixes.some(prefix => req.originalUrl.startsWith(prefix));
 
-  // Log access if country is not Kenya
+  // Log access if country is not Kenya (just for analytics)
   if (country !== 'KE') {
-    const isBlocked = !ALLOWED_COUNTRIES.includes(country) && !isPublicRoute;
+    const isBlocked = !ALLOWED_COUNTRIES.includes(country) && isRestrictedRoute;
     GeoAccessLog.findOneAndUpdate(
       { ip },
       {
@@ -181,7 +179,7 @@ export const geoMiddleware = (req, res, next) => {
     });
   }
 
-  if (!ALLOWED_COUNTRIES.includes(country) && !isPublicRoute) {
+  if (!ALLOWED_COUNTRIES.includes(country) && isRestrictedRoute) {
     logger.warn(`GeoIP Blocked: IP ${ip} from ${country} (${city || 'unknown'}) is not in allowed countries list. Route: ${req.originalUrl}`);
     return res.status(403).json({
       message: 'Thank you for your interest! Currently, our labelling tasks are available in East Africa only. We will notify you when we expand to your region.'
