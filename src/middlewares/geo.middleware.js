@@ -77,13 +77,13 @@ export const geoMiddleware = (req, res, next) => {
     return next();
   }
 
-  // Extract IP from all potential client IP headers to support Cloudflare, Azure, proxies, etc.
+  // Extract IP: Prioritize Forwarded headers over req.ip (fixes Azure/Proxies)
   const rawIp =
     req.headers['cf-connecting-ip'] ||
     req.headers['x-client-ip'] ||
     req.headers['x-arr-clientaddr'] ||
-    req.ip ||
     req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+    req.ip ||
     req.socket.remoteAddress;
 
   const ip = cleanIp(rawIp);
@@ -115,24 +115,47 @@ export const geoMiddleware = (req, res, next) => {
     return next();
   }
 
-  const geo = geoip.lookup(ip)
+  let country, city, timezone, ll;
 
-  if (!geo) {
-    logger.warn(`GeoIP Warning: Unable to determine location for IP: ${ip}. Raw IP source: ${rawIp}`);
-    return res.status(400).json({
-      message: 'Unable to determine your location'
-    })
+  // Prioritize Cloudflare IP Country header if available
+  if (req.headers['cf-ipcountry'] && req.headers['cf-ipcountry'] !== 'XX') {
+    country = req.headers['cf-ipcountry'];
+    city = 'Unknown (CF Header)';
+    timezone = 'Unknown';
+    ll = [];
+  } else {
+    const geo = geoip.lookup(ip);
+    if (!geo) {
+      logger.warn(`GeoIP Warning: Unable to determine location for IP: ${ip}. Raw IP source: ${rawIp}`);
+      return res.status(400).json({
+        message: 'Unable to determine your location'
+      });
+    }
+    country = geo.country;
+    city = geo.city;
+    timezone = geo.timezone;
+    ll = geo.ll;
   }
 
-  const { country, city, timezone, ll } = geo
-  console.log("Country", country);
-  console.log("City", city);
-  console.log("Timezone", timezone);
-  console.log("Coords", ll);
+
+
+  // Allow unrestricted access to specific paths (e.g. login, webhooks, buyers)
+  const allowedPrefixes = [
+    '/api/v1/auth',
+    '/api/v1/ping',
+    '/api/v1/buyer',
+    '/api/v1/marketplace',
+    '/api/v1/datasets',
+    '/api/v1/payments',
+    '/api/v1/users', // Allow viewing user profile
+    '/payments/paystack/webhook' // Paystack bypass
+  ];
+  
+  const isPublicRoute = allowedPrefixes.some(prefix => req.originalUrl.startsWith(prefix) || req.originalUrl.includes(prefix));
 
   // Log access if country is not Kenya
   if (country !== 'KE') {
-    const isBlocked = !ALLOWED_COUNTRIES.includes(country) && !req.originalUrl.includes('/payments/paystack/webhook');
+    const isBlocked = !ALLOWED_COUNTRIES.includes(country) && !isPublicRoute;
     GeoAccessLog.findOneAndUpdate(
       { ip },
       {
@@ -155,18 +178,11 @@ export const geoMiddleware = (req, res, next) => {
     });
   }
 
-  // Bypass for Paystack Webhooks
-  if (req.originalUrl.includes('/payments/paystack/webhook')) {
-    logger.info(`Paystack webhook received in geo middleware`, { geo: geo });
-    return next();
-  }
-
-  if (!ALLOWED_COUNTRIES.includes(country)) {
-    logger.warn(`GeoIP Blocked: IP ${ip} from ${country} (${city || 'unknown'}) is not in allowed countries list.`);
+  if (!ALLOWED_COUNTRIES.includes(country) && !isPublicRoute) {
+    logger.warn(`GeoIP Blocked: IP ${ip} from ${country} (${city || 'unknown'}) is not in allowed countries list. Route: ${req.originalUrl}`);
     return res.status(403).json({
-      message:
-        'Thank you for your interest in working with us. Currently our services are available in East Africa only. We shall get back to you when we expand.'
-    })
+      message: 'Thank you for your interest! Currently, our labelling tasks are available in East Africa only. We will notify you when we expand to your region.'
+    });
   }
 
   // attach context to request
@@ -175,6 +191,7 @@ export const geoMiddleware = (req, res, next) => {
     city,
     timezone,
     coords: ll || []
-  }
-  next()
+  };
+  
+  next();
 }

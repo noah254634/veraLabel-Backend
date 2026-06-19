@@ -30,8 +30,16 @@ const router=express.Router();
 router.get("/ping", async (req, res) => {
   try {
     const health = await analyzeSystemHealth();
+    const clientIp = 
+      req.headers['cf-connecting-ip'] ||
+      req.headers['x-client-ip'] ||
+      req.headers['x-arr-clientaddr'] ||
+      req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+      req.ip ||
+      req.socket.remoteAddress;
+
     const statusCode = health.status === 'healthy' ? 200 : (health.status === 'degraded' ? 200 : 503);
-    res.status(statusCode).json(health);
+    res.status(statusCode).json({ ...health, clientIp });
   } catch (error) {
     logger.error('Health check failed', { error: error.message });
     res.status(500).json({ 
