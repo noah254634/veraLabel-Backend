@@ -224,4 +224,42 @@ export const adminController = {
     const result = await adminService.evaluateDatasetConsensus(id);
     return ResponseHandler.success(res, result, "Consensus evaluation completed successfully");
   }),
+
+  getSAM2Telemetry: asyncHandler(async (req, res) => {
+    const mlUrl = process.env.FASTAPI_ML_URL;
+    if (!mlUrl) throw new AppError("FASTAPI_ML_URL is not configured", 500);
+
+    try {
+      const baseUrl = new URL(mlUrl).origin;
+      const response = await fetch(`${baseUrl}/api/v1/telemetry`);
+      if (!response.ok) throw new Error("Failed to fetch ML telemetry");
+      const telemetry = await response.json();
+      return ResponseHandler.success(res, { telemetry }, "SAM2 telemetry fetched");
+    } catch (error) {
+      logger.error("Failed to fetch SAM2 telemetry", { error: error.message });
+      throw new AppError("Failed to communicate with ML engine", 502);
+    }
+  }),
+
+  updateSAM2Settings: asyncHandler(async (req, res) => {
+    const mlUrl = process.env.FASTAPI_ML_URL;
+    if (!mlUrl) throw new AppError("FASTAPI_ML_URL is not configured", 500);
+
+    const { mock_mode, device } = req.body;
+
+    try {
+      const baseUrl = new URL(mlUrl).origin;
+      const response = await fetch(`${baseUrl}/api/v1/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mock_mode, device })
+      });
+      if (!response.ok) throw new Error("Failed to update ML settings");
+      const result = await response.json();
+      return ResponseHandler.success(res, result, "SAM2 settings updated");
+    } catch (error) {
+      logger.error("Failed to update SAM2 settings", { error: error.message });
+      throw new AppError("Failed to communicate with ML engine", 502);
+    }
+  }),
 };

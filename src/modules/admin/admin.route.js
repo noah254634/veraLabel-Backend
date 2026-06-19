@@ -52,6 +52,10 @@ router.put("/buyers/:id/reject", adminController.rejectBuyer);
 router.get("/geo-access-logs", adminController.getGeoAccessLogs);
 router.get("/geo-analytics", adminController.getGeoAnalytics);
 
+// ML Engine Integration
+router.get("/ml/sam2/telemetry", adminController.getSAM2Telemetry);
+router.post("/ml/sam2/settings", adminController.updateSAM2Settings);
+
 router.use("/settings", settingsRouter);
 
 export default router;

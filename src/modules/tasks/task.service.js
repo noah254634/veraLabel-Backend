@@ -308,9 +308,8 @@ const normalizeIncomingTask = (task, index) => {
 };
 
 
-const checkExistingBatchAssignment = async (datasetId, labellerId) => {
+const checkExistingBatchAssignment = async (labellerId) => {
   const batch = await Batch.findOne({
-    datasetId,
     assignedTo: labellerId,
     status: 'in_progress'
   }).populate('tasks');
@@ -325,7 +324,12 @@ const checkExistingBatchAssignment = async (datasetId, labellerId) => {
     submittedBy: labeller._id
   });
 
-  if (count >= batch.totalTasks) {
+  const flaggedCount = await Task.countDocuments({
+    _id: { $in: batch.tasks.map(t => t._id) },
+    status: 'flagged'
+  });
+
+  if (count + flaggedCount >= batch.totalTasks) {
     return null;
   }
 
@@ -353,7 +357,10 @@ const findAndLockAvailableBatch = async (datasetId, labellerId) => {
       },
       $addToSet: { assignedTo: labellerId }
     },
-    { new: true }
+    { 
+      sort: { priority: -1, createdAt: 1 },
+      new: true 
+    }
   ).populate('tasks');
 };
 
@@ -1547,9 +1554,11 @@ export const taskService = {
       const labeller = await resolveLabellerDocument(labellerIdentifier);
       if (!labeller) throw new Error("Labeller profile not found");
 
-      // Check for existing active assignment
-      const existingBatch = await checkExistingBatchAssignment(datasetId, labeller._id);
+      const existingBatch = await checkExistingBatchAssignment(labeller._id);
       if (existingBatch) {
+        if (existingBatch.datasetId.toString() !== datasetId.toString()) {
+          throw new Error("You already have an active batch in another dataset. Please complete it before claiming a new one.");
+        }
         logger.info('Labeller already has active batch assignment, returning existing batch', {
           datasetId,
           labellerId: labeller._id,
