@@ -10,7 +10,7 @@ const port=ENV().PORT||3000;
 const server=app.listen(port,"0.0.0.0",()=>{
     logger.info(`server running on http://localhost:${port}`);
     
-
+    // Trigger reload to pick up env updates
     connectDB().then(() => {
         logger.info("Database connected successfully, starting task cleanup");
         startTaskCleanUp();

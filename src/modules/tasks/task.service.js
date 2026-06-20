@@ -60,15 +60,18 @@ const enrichBatchWithDataset = async (batch) => {
   plain.pricePerBatch = dataset?.pricePerBatch || 0;
 
   if (Array.isArray(plain.tasks)) {
-    plain.tasks = plain.tasks.map((t) => {
-      const task = t?.toObject ? t.toObject() : { ...t };
-      return {
-        ...task,
-        contentType: task.contentType || normalizeContentType(task, dataset),
-        labellingMethod,
-        categories: task.categories || dataset?.metadata?.labels || [],
-      };
-    });
+    plain.tasks = await Promise.all(
+      plain.tasks.map(async (t) => {
+        const task = t?.toObject ? t.toObject() : { ...t };
+        const mappedTask = {
+          ...task,
+          contentType: task.contentType || normalizeContentType(task, dataset),
+          labellingMethod,
+          categories: task.categories || dataset?.metadata?.labels || [],
+        };
+        return await enrichTaskMedia(mappedTask, datasetContentType);
+      })
+    );
   }
 
   return plain;
@@ -153,6 +156,43 @@ const getEmbeddingR2Key = (imageR2Key) => {
   return `${imageR2Key}.npy`;
 };
 
+const enrichTaskMedia = async (task, datasetContentType) => {
+  const contentType = (task.contentType || datasetContentType || 'text').toLowerCase();
+  
+  if (!['image', 'audio', 'video'].includes(contentType)) {
+    return task;
+  }
+
+  try {
+    const taskR2Url = task.r2_input_taskRef;
+    if (taskR2Url) {
+      const presignedUrl = await r2ContentFetcher.getPresignedUrl(taskR2Url);
+      task.url = presignedUrl;
+      task.data = { ...task.data, url: presignedUrl };
+
+      if (contentType === 'image') {
+        const embeddingKey = getEmbeddingR2Key(taskR2Url);
+        try {
+          await r2ContentFetcher.getContentMetadata(embeddingKey);
+          const embeddingUrl = await r2ContentFetcher.getPresignedUrl(embeddingKey);
+          task.embeddingUrl = embeddingUrl;
+          task.taskObject = {
+            ...task.taskObject,
+            url: presignedUrl,
+            embeddingUrl: embeddingUrl
+          };
+        } catch (e) {
+          logger.debug('No embedding found for image task during media enrichment', { taskId: task._id || task.id, error: e.message });
+        }
+      }
+    }
+  } catch (error) {
+    logger.warn('Failed to enrich task media URLs', { taskId: task._id || task.id, error: error.message });
+  }
+
+  return task;
+};
+
 const triggerEmbeddingGeneration = async (task, datasetDoc) => {
   try {
     const mlUrl = process.env.FASTAPI_ML_URL;
@@ -184,7 +224,7 @@ const triggerEmbeddingGeneration = async (task, datasetDoc) => {
       embeddingKey,
     });
 
-    fetch(`${mlUrl}/api/v1/generate-embedding`, {
+    const response = await fetch(`${mlUrl}/api/v1/generate-embedding`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -193,25 +233,20 @@ const triggerEmbeddingGeneration = async (task, datasetDoc) => {
         image_url: presignedGetUrl,
         upload_url: presignedPutUrl,
       }),
-    }).then(async (response) => {
-      if (!response.ok) {
-        const text = await response.text();
-        logger.error('ML service failed to generate embedding', {
-          status: response.status,
-          response: text,
-          taskId: task._id || task.id,
-        });
-      } else {
-        logger.info('ML service successfully generated embedding', {
-          taskId: task._id || task.id,
-        });
-      }
-    }).catch((err) => {
-      logger.error('Error contacting ML service for embedding', {
-        error: err.message,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      logger.error('ML service failed to generate embedding', {
+        status: response.status,
+        response: text,
         taskId: task._id || task.id,
       });
-    });
+    } else {
+      logger.info('ML service successfully generated embedding', {
+        taskId: task._id || task.id,
+      });
+    }
   } catch (error) {
     logger.error('Failed to trigger embedding generation', {
       error: error.message,
@@ -663,13 +698,18 @@ export const taskService = {
             failedCount: tasksToInsert.length - insertedCount,
           });
 
-          // Trigger embedding generation for newly inserted tasks
+          // Trigger embedding generation for newly inserted tasks sequentially in the background
           if (datasetDoc && String(datasetDoc.contentType).toLowerCase() === 'image') {
-            for (const task of insertResult) {
-              triggerEmbeddingGeneration(task, datasetDoc).catch(err => {
-                logger.error('Failed to trigger embedding generation in insertResult', { error: err.message, taskId: task._id });
-              });
-            }
+            (async () => {
+              for (const task of insertResult) {
+                try {
+                  await triggerEmbeddingGeneration(task, datasetDoc);
+                  await new Promise(resolve => setTimeout(resolve, 500)); // Delay to not overload the ML server
+                } catch (err) {
+                  logger.error('Failed to trigger embedding generation in insertResult', { error: err.message, taskId: task._id });
+                }
+              }
+            })();
           }
         } catch (insertError) {
           const isBulkDuplicate = insertError.writeErrors && 
@@ -1812,5 +1852,52 @@ export const taskService = {
     });
 
     return { taskId: task._id, status: 'flagged', reason, progress };
+  },
+
+  generateMissingEmbeddings: async (datasetId) => {
+    if (!datasetId) throw new Error("datasetId is required");
+    const datasetDoc = await Dataset.findById(datasetId).select("contentType").lean();
+    if (!datasetDoc) throw new Error("Dataset not found");
+    if (String(datasetDoc.contentType).toLowerCase() !== 'image') {
+      throw new Error("Only image datasets support SAM 2 embeddings");
+    }
+
+    const tasks = await Task.find({ datasetId }).lean();
+    let triggeredCount = 0;
+    let failedCount = 0;
+    let skippedCount = 0;
+    
+    for (const task of tasks) {
+      try {
+        const taskR2Url = task.r2_input_taskRef;
+        const embeddingKey = getEmbeddingR2Key(taskR2Url);
+        
+        let exists = false;
+        try {
+          await r2ContentFetcher.getContentMetadata(embeddingKey);
+          exists = true;
+        } catch (e) {
+          exists = false;
+        }
+
+        if (!exists) {
+          try {
+            await triggerEmbeddingGeneration(task, datasetDoc);
+            triggeredCount++;
+          } catch (generationErr) {
+            failedCount++;
+            logger.error(`Generation failed for task ${task._id}`, { error: generationErr.message });
+          }
+          await new Promise(r => setTimeout(r, 500)); // Delay to give Python server time
+        } else {
+          skippedCount++;
+        }
+      } catch (err) {
+        failedCount++;
+        logger.error(`Error checking embedding for task ${task._id}`, { error: err.message });
+      }
+    }
+    
+    return { success: true, triggeredCount, failedCount, skippedCount, totalTasks: tasks.length };
   },
 };

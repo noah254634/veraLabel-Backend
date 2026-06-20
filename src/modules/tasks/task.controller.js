@@ -213,4 +213,11 @@ export const taskController = {
     const batch = await taskService.getMyActiveBatch(labellerId);
     return ResponseHandler.success(res, batch ?? null, "Active batch fetched");
   }),
+
+  generateMissingEmbeddings: asyncHandler(async (req, res) => {
+    const { datasetId } = req.body;
+    if (!datasetId) throw new AppError("datasetId is required", 400);
+    const response = await taskService.generateMissingEmbeddings(datasetId);
+    return ResponseHandler.success(res, response, "Missing embeddings generation triggered");
+  }),
 };
