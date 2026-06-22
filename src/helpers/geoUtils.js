@@ -56,8 +56,6 @@ export const extractUserFromToken = (req) => {
  * Logs geo access aggregates and registers response finish hook for chronological audit trails.
  */
 export const logGeoTelemetry = (req, res, { ip, country, city, timezone, coords, isLabellerRoute }) => {
-  if (country === 'KE') return;
-
   const isRestrictedRoute = isLabellerRoute;
   const isBlockedStatus = !ALLOWED_COUNTRIES.includes(country) && isRestrictedRoute;
   
