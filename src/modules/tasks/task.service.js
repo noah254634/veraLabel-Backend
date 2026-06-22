@@ -13,7 +13,8 @@ import { PutObjectCommand, HeadObjectCommand, GetObjectCommand } from "@aws-sdk/
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { r2 } from "../../config/r2Upload.js";
 import { normalizeContentType, isLegacyRlhfTaskType } from "./taskContentType.js";
-import { addEvents } from "./progress.service.js";
+import { addEvents, addEvent, createSession } from "./progress.service.js";
+import TaskProgressSession from "./task.progress.model.js";
 
 
 const normalizeTaskTypeForInvoice = (contentTypeOrLegacy, labellingMethod) => {
@@ -158,7 +159,7 @@ const getEmbeddingR2Key = (imageR2Key) => {
 
 const enrichTaskMedia = async (task, datasetContentType) => {
   const contentType = (task.contentType || datasetContentType || 'text').toLowerCase();
-  
+
   if (!['image', 'audio', 'video'].includes(contentType)) {
     return task;
   }
@@ -193,7 +194,7 @@ const enrichTaskMedia = async (task, datasetContentType) => {
   return task;
 };
 
-const triggerEmbeddingGeneration = async (task, datasetDoc) => {
+const triggerEmbeddingGeneration = async (task, datasetDoc, projectId = null, serverUrl = null) => {
   try {
     const mlUrl = process.env.FASTAPI_ML_URL;
     if (!mlUrl) {
@@ -217,21 +218,34 @@ const triggerEmbeddingGeneration = async (task, datasetDoc) => {
       expiresIn: 3600, // 1 hour
     });
 
+    const resolvedProjectId = projectId || datasetDoc.datasetLabeler?.toString() || datasetDoc.buyerId?.toString() || "unknown";
+    const resolvedServerUrl = process.env.SERVER_URL;
+    if (!resolvedServerUrl) {
+      throw new Error("SERVER_URL is not configured in the environment. Cannot generate callback URL.");
+    }
+    const callbackUrl = `${resolvedServerUrl}/api/v1/tasks/progress`;
+
     // 3. Dispatch POST request to the FastAPI ML service (asynchronous)
     logger.info('Triggering ML service for SAM 2 embedding', {
       taskId: task._id || task.id,
       r2Key: taskR2Url,
       embeddingKey,
+      projectId: resolvedProjectId,
     });
 
     const response = await fetch(`${mlUrl}/api/v1/generate-embedding`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-API-Key': process.env.FASTAPI_ML_API_KEY,
       },
       body: JSON.stringify({
         image_url: presignedGetUrl,
         upload_url: presignedPutUrl,
+        project_id: resolvedProjectId,
+        dataset_id: (datasetDoc._id || task.datasetId)?.toString(),
+        task_id: (task._id || task.id)?.toString(),
+        callback_url: callbackUrl,
       }),
     });
 
@@ -392,9 +406,9 @@ const findAndLockAvailableBatch = async (datasetId, labellerId) => {
       },
       $addToSet: { assignedTo: labellerId }
     },
-    { 
+    {
       sort: { priority: -1, createdAt: 1 },
-      new: true 
+      new: true
     }
   ).populate('tasks');
 };
@@ -558,7 +572,7 @@ export const taskService = {
     return batches;
   },
 
-  createTask: async ({ datasetId, projectId, tasks, isLastBatch }) => {
+  createTask: async ({ datasetId, projectId, tasks, isLastBatch, serverUrl = null }) => {
     try {
       // Validate inputs with defensive checks
       if (!datasetId || typeof datasetId !== 'string') {
@@ -701,19 +715,45 @@ export const taskService = {
           // Trigger embedding generation for newly inserted tasks sequentially in the background
           if (datasetDoc && String(datasetDoc.contentType).toLowerCase() === 'image') {
             (async () => {
+              const startTime = Date.now();
+              let session;
+              try {
+                session = await createSession(projectId, datasetId);
+                session.completionSummary = {
+                  expectedCount: insertResult.length,
+                  startTime: startTime
+                };
+                await TaskProgressSession.updateOne(
+                  { sessionId: session.sessionId },
+                  { $set: { completionSummary: session.completionSummary } }
+                );
+
+                await addEvent(projectId, datasetId, {
+                  type: 'checkpoint',
+                  message: `Starting background SAM 2 embedding generation for ${insertResult.length} images`,
+                  severity: 'info'
+                });
+              } catch (sessionErr) {
+                logger.warn("Failed to initialize progress session or send start checkpoint event", { error: sessionErr.message });
+              }
+
+              let successCount = 0;
+              let failCount = 0;
               for (const task of insertResult) {
                 try {
-                  await triggerEmbeddingGeneration(task, datasetDoc);
-                  await new Promise(resolve => setTimeout(resolve, 500)); // Delay to not overload the ML server
+                  await triggerEmbeddingGeneration(task, datasetDoc, projectId, serverUrl);
+                  successCount++;
+                  await new Promise(resolve => setTimeout(resolve, 20)); // Delay to not overload the ML server
                 } catch (err) {
+                  failCount++;
                   logger.error('Failed to trigger embedding generation in insertResult', { error: err.message, taskId: task._id });
                 }
               }
             })();
           }
         } catch (insertError) {
-          const isBulkDuplicate = insertError.writeErrors && 
-            insertError.writeErrors.length > 0 && 
+          const isBulkDuplicate = insertError.writeErrors &&
+            insertError.writeErrors.length > 0 &&
             insertError.writeErrors.every(e => e.code === 11000);
           const isSingleDuplicate = insertError.code === 11000;
           const isDuplicateError = isSingleDuplicate || isBulkDuplicate;
@@ -733,7 +773,7 @@ export const taskService = {
             // Trigger embedding generation for newly inserted tasks in the catch block
             if (datasetDoc && String(datasetDoc.contentType).toLowerCase() === 'image') {
               for (const task of insertedDocs) {
-                triggerEmbeddingGeneration(task, datasetDoc).catch(err => {
+                triggerEmbeddingGeneration(task, datasetDoc, projectId, serverUrl).catch(err => {
                   logger.error('Failed to trigger embedding generation in insertedDocs', { error: err.message, taskId: task._id });
                 });
               }
@@ -1354,13 +1394,13 @@ export const taskService = {
       const taskReward = await getTaskReward(batch);
       await Labeller.updateOne(
         { _id: labellerId },
-        { 
-          $inc: { 
+        {
+          $inc: {
             'earnings.pendingPayment': -taskReward,
             'earnings.currentBalance': taskReward,
             'earnings.totalEarned': taskReward,
             'performance.totalTasksCompleted': 1
-          } 
+          }
         }
       );
     }
@@ -1391,7 +1431,7 @@ export const taskService = {
         await Labeller.findOneAndUpdate(
           { _id: labellerId },
           {
-            $inc: { 
+            $inc: {
               'performance.totalTasksRejected': 1,
               'earnings.pendingPayment': -taskReward
             }
@@ -1434,13 +1474,13 @@ export const taskService = {
       const taskReward = await getTaskReward(batch);
       await Labeller.updateOne(
         { _id: labellerId },
-        { 
-          $inc: { 
+        {
+          $inc: {
             'earnings.pendingPayment': -taskReward,
             'earnings.currentBalance': taskReward,
             'earnings.totalEarned': taskReward,
             'performance.totalTasksCompleted': 1
-          } 
+          }
         }
       );
     }
@@ -1558,7 +1598,7 @@ export const taskService = {
           update: { $set: { batchId: batch._id } }
         }
       }));
-      
+
       await Task.bulkWrite(bulkOps);
 
       logger.info(`Batch generation completed for dataset ${datasetId}`, {
@@ -1784,7 +1824,7 @@ export const taskService = {
     const taskReward = await getTaskReward(batch);
     await Labeller.updateOne(
       { _id: labellerId },
-      { 
+      {
         $pull: { currentAssignedTasks: task._id },
         $inc: { 'earnings.pendingPayment': taskReward }
       }
@@ -1854,50 +1894,97 @@ export const taskService = {
     return { taskId: task._id, status: 'flagged', reason, progress };
   },
 
-  generateMissingEmbeddings: async (datasetId) => {
+  generateMissingEmbeddings: async (datasetId, serverUrl = null) => {
     if (!datasetId) throw new Error("datasetId is required");
-    const datasetDoc = await Dataset.findById(datasetId).select("contentType").lean();
+    const datasetDoc = await Dataset.findById(datasetId).select("contentType buyerId datasetLabeler").lean();
     if (!datasetDoc) throw new Error("Dataset not found");
     if (String(datasetDoc.contentType).toLowerCase() !== 'image') {
       throw new Error("Only image datasets support SAM 2 embeddings");
     }
 
-    const tasks = await Task.find({ datasetId }).lean();
-    let triggeredCount = 0;
-    let failedCount = 0;
-    let skippedCount = 0;
-    
-    for (const task of tasks) {
+    const resolvedProjectId = datasetDoc.datasetLabeler?.toString() || datasetDoc.buyerId?.toString() || "unknown";
+
+    // Run missing check and generation asynchronously in the background
+    (async () => {
       try {
-        const taskR2Url = task.r2_input_taskRef;
-        const embeddingKey = getEmbeddingR2Key(taskR2Url);
-        
-        let exists = false;
-        try {
-          await r2ContentFetcher.getContentMetadata(embeddingKey);
-          exists = true;
-        } catch (e) {
-          exists = false;
+        // Prevent race condition: check if a generation session is already in progress
+        const existingSession = await TaskProgressSession.findOne({ datasetId, status: 'processing' }).lean();
+        if (existingSession) {
+          const now = new Date();
+          const lastUpdate = new Date(existingSession.lastUpdate || existingSession.createdAt);
+          // If it was updated less than 30 minutes ago, consider it active and block
+          if (now - lastUpdate < 30 * 60 * 1000) {
+            logger.warn(`Rejected concurrent generateMissingEmbeddings for dataset ${datasetId}`);
+            return;
+          }
         }
 
-        if (!exists) {
-          try {
-            await triggerEmbeddingGeneration(task, datasetDoc);
-            triggeredCount++;
-          } catch (generationErr) {
-            failedCount++;
-            logger.error(`Generation failed for task ${task._id}`, { error: generationErr.message });
-          }
-          await new Promise(r => setTimeout(r, 500)); // Delay to give Python server time
-        } else {
-          skippedCount++;
+        const tasksToTrigger = await Task.find({ datasetId, hasSam2Embedding: { $ne: true } }).lean();
+        const totalTasksCount = await Task.countDocuments({ datasetId });
+        const skippedCount = totalTasksCount - tasksToTrigger.length;
+
+        const session = await createSession(resolvedProjectId, datasetId);
+
+        await addEvent(resolvedProjectId, datasetId, {
+          type: 'checkpoint',
+          message: `Found ${tasksToTrigger.length} missing embeddings (skipped ${skippedCount} existing based on DB status). Starting generation...`,
+          severity: 'info'
+        });
+
+        if (tasksToTrigger.length === 0) {
+          const summary = {
+            expectedCount: 0,
+            total: 0,
+            successCount: 0,
+            failedCount: 0,
+            durationMs: 0,
+            success: true
+          };
+          await TaskProgressSession.updateOne(
+            { sessionId: session.sessionId },
+            {
+              $set: {
+                status: 'completed',
+                endTime: new Date(),
+                completionSummary: summary
+              }
+            }
+          );
+          await addEvent(resolvedProjectId, datasetId, {
+            type: 'complete',
+            message: 'Completed: All embeddings are already up to date.',
+            severity: 'info',
+            summary
+          });
+          return;
         }
-      } catch (err) {
-        failedCount++;
-        logger.error(`Error checking embedding for task ${task._id}`, { error: err.message });
+
+        session.completionSummary = {
+          expectedCount: tasksToTrigger.length,
+          startTime: Date.now()
+        };
+        await TaskProgressSession.updateOne(
+          { sessionId: session.sessionId },
+          { $set: { completionSummary: session.completionSummary } }
+        );
+
+        let successCount = 0;
+        let failCount = 0;
+        for (const task of tasksToTrigger) {
+          try {
+            await triggerEmbeddingGeneration(task, datasetDoc, resolvedProjectId, serverUrl);
+            successCount++;
+            await new Promise(resolve => setTimeout(resolve, 20)); // Delay to not overload the ML server
+          } catch (err) {
+            failCount++;
+            logger.error(`Generation failed for task ${task._id}`, { error: err.message });
+          }
+        }
+      } catch (bgError) {
+        logger.error('Error in background missing embedding generator', { error: bgError.message });
       }
-    }
-    
-    return { success: true, triggeredCount, failedCount, skippedCount, totalTasks: tasks.length };
+    })();
+
+    return { success: true, message: "Missing embedding generation triggered in background." };
   },
 };

@@ -53,7 +53,7 @@ router.get("/ping", async (req, res) => {
 
 
 
-router.put("/admin/promote-by-email/:email", asyncHandler(async (req, res) => {
+router.put("/admin/promote-by-email/:email", protectRoute, authorize("admin", "superadmin"), asyncHandler(async (req, res) => {
   const { email } = req.params;
   if (!email) throw new AppError("Email is required", 400);
   

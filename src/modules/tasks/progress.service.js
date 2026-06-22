@@ -1,5 +1,6 @@
 import logger from '../../config/logger.js';
 import TaskProgressSession from './task.progress.model.js';
+import Task from './task.model.js';
 
 const activeSessions = new Map();
 const sessionSubscribers = new Map();
@@ -74,6 +75,45 @@ const validateEvent = (event) => {
     throw new Error(`event.severity must be one of: ${Array.from(VALID_SEVERITIES).join(', ')}`);
   }
   return event;
+};
+
+const checkSessionCompletion = (session, now, validatedEvents) => {
+  if (session.completionSummary && session.completionSummary.expectedCount && session.status === 'processing') {
+    const processedCount = session.events.filter(e => e.type === 'progress' || e.type === 'error').length;
+    if (processedCount >= session.completionSummary.expectedCount) {
+      const durationMs = now - new Date(session.completionSummary.startTime || session.startTime);
+      const durationSec = (durationMs / 1000).toFixed(2);
+      
+      const successCount = session.events.filter(e => e.type === 'progress').length;
+      const failedCount = session.events.filter(e => e.type === 'error').length;
+      
+      session.status = 'completed';
+      session.endTime = now;
+      session.completionSummary = {
+        ...session.completionSummary,
+        total: session.completionSummary.expectedCount,
+        successCount,
+        failedCount,
+        durationMs,
+        success: true
+      };
+      
+      const completeEvent = {
+        type: 'complete',
+        message: `Completed SAM 2 embedding generation: all ${session.completionSummary.expectedCount} tasks processed in ${durationSec}s (Success: ${successCount}, Failed: ${failedCount})`,
+        severity: 'info',
+        timestamp: now.toISOString(),
+        serverReceivedAt: now.toISOString(),
+        eventIndex: session.events.length,
+        summary: session.completionSummary
+      };
+      
+      session.events.push(completeEvent);
+      validatedEvents.push(completeEvent);
+      return true;
+    }
+  }
+  return false;
 };
 
 export const createSession = async (projectId, datasetId) => {
@@ -198,31 +238,53 @@ export const addEvent = async (projectId, datasetId, event) => {
     if (validatedEvent.type === 'checkpoint') session.eventMetrics.checkpoints += 1;
 
     // Update session status based on event type with priority
+    let hasFinalEvent = false;
     if (validatedEvent.type === 'error' && validatedEvent.severity === 'critical') {
       session.status = 'failed';
       session.failureReason = validatedEvent.message;
       session.endTime = new Date();
+      hasFinalEvent = true;
     } else if (validatedEvent.type === 'complete') {
       session.status = 'completed';
       session.endTime = new Date();
       session.completionSummary = validatedEvent.summary || {};
+      hasFinalEvent = true;
+    }
+
+    const validatedEventsList = [enrichedEvent];
+    if (checkSessionCompletion(session, session.lastUpdate, validatedEventsList)) {
+      hasFinalEvent = true;
     }
 
     // Update MongoDB
-    await TaskProgressSession.updateOne(
-      { sessionId: session.sessionId },
-      {
-        $push: { events: enrichedEvent },
-        $set: {
-          eventMetrics: session.eventMetrics,
-          status: session.status,
-          lastUpdate: session.lastUpdate,
-          endTime: session.endTime,
-          failureReason: session.failureReason,
-          completionSummary: session.completionSummary
+    if (hasFinalEvent) {
+      await TaskProgressSession.updateOne(
+        { sessionId: session.sessionId },
+        {
+          $push: { events: { $each: validatedEventsList } },
+          $set: {
+            eventMetrics: session.eventMetrics,
+            status: session.status,
+            lastUpdate: session.lastUpdate,
+            endTime: session.endTime,
+            failureReason: session.failureReason,
+            completionSummary: session.completionSummary
+          }
         }
-      }
-    );
+      );
+    } else {
+      await TaskProgressSession.updateOne(
+        { sessionId: session.sessionId },
+        {
+          $push: { events: enrichedEvent },
+          $set: {
+            eventMetrics: session.eventMetrics,
+            status: session.status,
+            lastUpdate: session.lastUpdate
+          }
+        }
+      );
+    }
 
     logger.debug('Event added to session & saved to DB', {
       sessionId: session.sessionId,
@@ -231,6 +293,13 @@ export const addEvent = async (projectId, datasetId, event) => {
     });
 
     notifySessionSubscribers(session, enrichedEvent);
+
+    if (validatedEvent.type === 'progress' && validatedEvent.metadata?.taskId) {
+      Task.updateOne(
+        { _id: validatedEvent.metadata.taskId },
+        { $set: { hasSam2Embedding: true } }
+      ).catch(err => logger.error('Failed to update task embedding flag', { error: err.message }));
+    }
 
     return session;
   } catch (error) {
@@ -250,6 +319,7 @@ export const addEvents = async (projectId, datasetId, events) => {
 
     const validatedEvents = [];
     const failedEvents = [];
+    const completedTaskIds = [];
     const now = new Date();
     let hasFinalEvent = false; // complete or critical error — must be persisted
 
@@ -268,6 +338,10 @@ export const addEvents = async (projectId, datasetId, events) => {
         };
 
         validatedEvents.push(enrichedEvent);
+
+        if (validatedEvent.type === 'progress' && validatedEvent.metadata?.taskId) {
+          completedTaskIds.push(validatedEvent.metadata.taskId);
+        }
 
         session.eventMetrics.processed += 1;
         if (validatedEvent.type === 'error') session.eventMetrics.errors += 1;
@@ -297,6 +371,10 @@ export const addEvents = async (projectId, datasetId, events) => {
     if (validatedEvents.length > 0) {
       session.events.push(...validatedEvents);
       session.lastUpdate = now;
+
+      if (checkSessionCompletion(session, now, validatedEvents)) {
+        hasFinalEvent = true;
+      }
 
       // Routine progress events are in-memory only; persist on final state changes.
       if (hasFinalEvent) {
@@ -333,6 +411,13 @@ export const addEvents = async (projectId, datasetId, events) => {
 
       for (const enrichedEvent of validatedEvents) {
         notifySessionSubscribers(session, enrichedEvent);
+      }
+      
+      if (completedTaskIds.length > 0) {
+        Task.updateMany(
+          { _id: { $in: completedTaskIds } },
+          { $set: { hasSam2Embedding: true } }
+        ).catch(err => logger.error('Failed to update task embedding flags', { error: err.message }));
       }
     }
 

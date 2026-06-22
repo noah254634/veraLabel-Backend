@@ -41,7 +41,11 @@ export const taskController = {
     if (!handshakeMatches && !tokenMatches)
       throw new AppError("Invalid url", 401);
 
-    const response = await taskService.createTask({ datasetId, projectId, tasks, isLastBatch: finalBatch });
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const serverUrl = `${protocol}://${host}`;
+
+    const response = await taskService.createTask({ datasetId, projectId, tasks, isLastBatch: finalBatch, serverUrl });
     logger.info(`Tasks created for project ${projectId}, dataset ${datasetId}. Count: ${response.count}`);
 
     const statusCode = response.failedItems > 0 ? 202 : 201;
@@ -217,7 +221,12 @@ export const taskController = {
   generateMissingEmbeddings: asyncHandler(async (req, res) => {
     const { datasetId } = req.body;
     if (!datasetId) throw new AppError("datasetId is required", 400);
-    const response = await taskService.generateMissingEmbeddings(datasetId);
+
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const serverUrl = `${protocol}://${host}`;
+
+    const response = await taskService.generateMissingEmbeddings(datasetId, serverUrl);
     return ResponseHandler.success(res, response, "Missing embeddings generation triggered");
   }),
 };

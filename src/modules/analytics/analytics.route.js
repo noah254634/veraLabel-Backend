@@ -1,6 +1,7 @@
 import express from "express";
 import analyticsController from "./analytics.controller.js";
 import labellerAnalyticsRouter from "../labeller/labeller.analytics.routes.js";
+import authorize from "../../middlewares/authorization.middleware.js";
 
 const router = express.Router();
 
@@ -8,7 +9,7 @@ const notImplemented = (req, res) => {
   return res.status(501).json({ error: "Not implemented" });
 };
 
-router.get("/platformOverview", analyticsController.overview);
+router.get("/platformOverview", authorize("admin", "superadmin"), analyticsController.overview);
 
 // Mount labeller analytics routes under /labellers
 router.use("/labellers", labellerAnalyticsRouter);
@@ -16,8 +17,8 @@ router.use("/labellers", labellerAnalyticsRouter);
 router.get("/users/registrations", notImplemented);   // per day/week/month
 router.get("/users/activity", notImplemented);        // DAU / MAU
 router.get("/users/retention", notImplemented);       // cohort analysis
-router.get("/datasets", analyticsController.datasetAnalytics);
-router.get("/buyers", analyticsController.buyerAnalytics);
+router.get("/datasets", authorize("admin", "superadmin"), analyticsController.datasetAnalytics);
+router.get("/buyers", authorize("admin", "superadmin"), analyticsController.buyerAnalytics);
 router.get("/datasets/summary", notImplemented);
 router.get("/datasets/submissions", notImplemented);
 router.get("/datasets/approval-rate", notImplemented);
@@ -26,7 +27,7 @@ router.get("/datasets/rejections", notImplemented);
 router.get("/annotations/summary", notImplemented);
 router.get("/annotations/time-spent", notImplemented);      // detect AI spam
 router.get("/annotations/quality-score", notImplemented);
-router.get("/revenue", analyticsController.revenueAnalytics);
+router.get("/revenue", authorize("admin", "superadmin"), analyticsController.revenueAnalytics);
 router.get("/revenue/summary", notImplemented);
 router.get("/revenue/daily", notImplemented);
 router.get("/revenue/monthly", notImplemented);

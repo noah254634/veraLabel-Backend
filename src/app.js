@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.middleware.js";
 import { geoMiddleware } from "./middlewares/geo.middleware.js";
+import { arcjetProtectRoute } from "./middlewares/arcjet.middleware.js";
 import morgan from "morgan";
 
 import "./config/firebase.admin.js";
@@ -101,7 +102,7 @@ app.use(cors(corsOptions));
 
 app.use(geoMiddleware);
 
-//app.use(arcjetProtectRoute);
+app.use(arcjetProtectRoute);
 app.use("/api/v1",router)
 
 

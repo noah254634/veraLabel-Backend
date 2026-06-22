@@ -2,18 +2,18 @@
  * Progress Controller
  */
 
-import { 
-  addEvent, 
+import {
+  addEvent,
   addEvents,
-  getSession, 
-  getSummary, 
-  getRecentEvents, 
-  createSession, 
-  clearSession, 
+  getSession,
+  getSummary,
+  getRecentEvents,
+  createSession,
+  clearSession,
   getAllActiveSessions,
   getSystemStats,
   cleanupExpiredSessions,
-  subscribeToSession 
+  subscribeToSession
 } from './progress.service.js';
 import logger from '../../config/logger.js';
 
@@ -34,7 +34,19 @@ export const progressController = {
    */
   receiveProgress: async (req, res) => {
     const requestId = req.headers['x-request-id'] || `req-${Date.now()}`;
-    
+
+    const apiKey = req.headers['x-api-key'];
+    const authHeader = req.headers['authorization'];
+    const expectedKey = process.env.FASTAPI_ML_API_KEY;
+    const expectedToken = process.env.TOKEN_VALUE || process.env.INTERNAL_SECRET || process.env.BACKEND_TOKEN;
+
+    const isApiKeyValid = !!(apiKey && apiKey === expectedKey);
+    const isTokenValid = !!(authHeader && expectedToken && authHeader === `Bearer ${expectedToken}`);
+
+    if (!isApiKeyValid && !isTokenValid) {
+      logger.warn('Unauthorized progress update attempt', { requestId, ip: req.ip });
+      return res.status(403).json({ success: false, message: 'Forbidden: Invalid API Key or Token' });
+    }
     try {
       logger.info('Progress update received', {
         requestId,

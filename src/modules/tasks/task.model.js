@@ -34,6 +34,11 @@ const taskSchema = new Schema({
     required: false,
   },
 
+  hasSam2Embedding: {
+    type: Boolean,
+    default: false
+  },
+
 
   r2_datasetUrl: {
     type: String,
