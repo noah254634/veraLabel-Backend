@@ -7,7 +7,9 @@ export const aj = arcjet({
     shield({mode:"LIVE"}), // basic protection
     detectBot({ mode: "LIVE", 
         allow:[
-            "Search Engine Bots",
+            "CATEGORY:SEARCH_ENGINE",
+            "CATEGORY:PREVIEW",
+            "CATEGORY:MONITOR"
         ]
     }),
     fixedWindow({
