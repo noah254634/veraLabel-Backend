@@ -1,6 +1,6 @@
 import geoip from 'geoip-lite'
 import logger from '../config/logger.js'
-import GeoAccessLog from '../modules/admin/models/geoAccessLog.model.js'
+import { isLabellerRoute, logGeoTelemetry } from '../helpers/geoUtils.js'
 
 const ALLOWED_COUNTRIES = ['KE', 'UG', 'TZ', 'RW', 'BI', 'SS']
 
@@ -137,46 +137,10 @@ export const geoMiddleware = (req, res, next) => {
     ll = geo.ll;
   }
 
-  const restrictedPrefixes = [
-    '/api/v1/labeller',
-    '/api/v1/onboarding',
-    '/api/v1/tasks/claim-batch',
-    '/api/v1/tasks/submit',
-    '/api/v1/tasks/my-active-batch',
-    '/api/v1/tasks/assign',
-    '/api/v1/tasks/generate-submission-url',
-    '/api/v1/tasks/flag'
-  ];
-  
-  const isRestrictedRoute = restrictedPrefixes.some(prefix => req.originalUrl.startsWith(prefix));
+  const isRestrictedRoute = isLabellerRoute(req.originalUrl);
 
-  const isBlockedStatus = !ALLOWED_COUNTRIES.includes(country) && isRestrictedRoute;
-  logger.info(`Geo Access: IP ${ip} -> ${country} (${city || 'unknown'}). Route: ${req.originalUrl} | Blocked: ${isBlockedStatus}`);
-
-  // Log access if country is not Kenya (just for analytics database)
-  if (country !== 'KE') {
-    const isBlocked = !ALLOWED_COUNTRIES.includes(country) && isRestrictedRoute;
-    GeoAccessLog.findOneAndUpdate(
-      { ip },
-      {
-        $set: {
-          country: country || 'Unknown',
-          city: city || 'Unknown',
-          timezone: timezone || 'Unknown',
-          coordinates: ll || [],
-          userAgent: req.headers['user-agent'] || 'Unknown',
-          lastPath: req.originalUrl || req.path || 'Unknown',
-          lastMethod: req.method || 'GET',
-          isBlocked,
-          lastAccess: new Date()
-        },
-        $inc: { hits: 1 }
-      },
-      { upsert: true }
-    ).catch((err) => {
-      logger.error('Failed to log geo access attempt in middleware', { error: err.message });
-    });
-  }
+  // Log telemetry (aggregates and chronological request auditing)
+  logGeoTelemetry(req, res, { ip, country, city, timezone, coords: ll, isLabellerRoute: isRestrictedRoute });
 
   if (!ALLOWED_COUNTRIES.includes(country) && isRestrictedRoute) {
     logger.warn(`GeoIP Blocked: IP ${ip} from ${country} (${city || 'unknown'}) is not in allowed countries list. Route: ${req.originalUrl}`);

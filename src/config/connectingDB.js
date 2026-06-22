@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import { ENV } from "./env.js";
 import logger from "./logger.js";
+import GeoAccessLog from "../modules/admin/models/geoAccessLog.model.js";
+import GeoRequestAudit from "../modules/admin/models/geoRequestAudit.model.js";
 
 const connectDB = async () => {
   const maxRetries = 5;
@@ -26,6 +28,16 @@ const connectDB = async () => {
       });
       
       logger.info(`Connected to mongoDB on ${conn.connection.host}`);
+      
+      // Explicitly sync indexes to ensure TTL indexes are built properly
+      try {
+        await GeoAccessLog.syncIndexes();
+        await GeoRequestAudit.syncIndexes();
+        logger.info("Successfully synchronized database indexes");
+      } catch (idxErr) {
+        logger.error(`Database index synchronization failed: ${idxErr.message}`);
+      }
+      
       return;
      
     } catch (err) {

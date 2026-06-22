@@ -50,6 +50,7 @@ router.put("/buyers/:id/reject", adminController.rejectBuyer);
 
 // Geo Access Tracking & Analytics
 router.get("/geo-access-logs", adminController.getGeoAccessLogs);
+router.get("/geo-request-audits", adminController.getGeoRequestAudits);
 router.get("/geo-analytics", adminController.getGeoAnalytics);
 
 // ML Engine Integration

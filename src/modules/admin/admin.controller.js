@@ -208,6 +208,11 @@ export const adminController = {
     return ResponseHandler.success(res, { logs }, "Geo access logs fetched successfully");
   }),
 
+  getGeoRequestAudits: asyncHandler(async (req, res) => {
+    const audits = await adminService.getGeoRequestAudits();
+    return ResponseHandler.success(res, { audits }, "Geo request audits fetched successfully");
+  }),
+
   getGeoAnalytics: asyncHandler(async (req, res) => {
     const analytics = await adminService.getGeoAnalytics();
     return ResponseHandler.success(res, { analytics }, "Geo access analytics fetched successfully");

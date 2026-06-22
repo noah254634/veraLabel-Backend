@@ -4,6 +4,7 @@ import UserVera from "../users/user.model.js";
 import Buyer from "../buyer/buyer.model.js";
 import Batch from "../tasks/task.batch.model.js";
 import GeoAccessLog from "./models/geoAccessLog.model.js";
+import GeoRequestAudit from "./models/geoRequestAudit.model.js";
 import { datasetService } from "../datasets/dataset.service.js";
 import Task from "../tasks/task.model.js";
 import Submission from "../tasks/task.submission.model.js";
@@ -429,6 +430,13 @@ export const adminService = {
 
   getGeoAccessLogs: async () => {
     return await GeoAccessLog.find().sort({ lastAccess: -1 });
+  },
+
+  getGeoRequestAudits: async () => {
+    return await GeoRequestAudit.find()
+      .populate('userId', 'name email role')
+      .sort({ timestamp: -1 })
+      .limit(200);
   },
 
   getGeoAnalytics: async () => {
