@@ -12,7 +12,6 @@ notificationRouter.post(
   NotificationController.registerToken
 );
 
-// Get notifications for the authenticated user
 notificationRouter.get(
   "/",
   protectRoute,

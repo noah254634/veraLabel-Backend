@@ -21,12 +21,10 @@ export const labellerAnalyticsService = {
   },
 
   getLabellersByStatus: async () => {
-    // Get statuses from the Labeller profile collection
     const profileStatuses = await Labeller.aggregate([
       { $group: { _id: '$status', count: { $sum: 1 } } }
     ]);
 
-    // Get basic status from UserVera for any "labelers" who might be missing profiles
     const userStatuses = await UserVera.aggregate([
       { $match: { role: 'labeler' } },
       { $group: { _id: { $cond: ["$isActive", "active", "inactive"] }, count: { $sum: 1 } } }

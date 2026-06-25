@@ -66,7 +66,7 @@ export const datasetController = {
   }),
 
   createDataset: asyncHandler(async (req, res) => {
-    const { name, domain, specifications, volume, format, budget, fileUrl, timeline, qualityMetrics, instructionId, buyerAnswers, labellingMethod, contentType, intent, timelineDays } = req.body;
+    const { name, domain, specifications, volume, format, budget, fileUrl, timeline, qualityMetrics, instructionId, buyerAnswers, labellingMethod, contentType, intent, timelineDays, maxLabellers } = req.body;
     const buyerId = req.buyer?._id;
     if (!buyerId) throw new AppError("Unauthorized", 401);
     if (!name) throw new AppError("Dataset name is required", 400);
@@ -83,11 +83,12 @@ export const datasetController = {
       buyerId,
       instructionId,
       intent,
-      timelineDays
+      timelineDays,
+      maxLabellers
     });
 
     const response = await datasetService.createDataset(
-      name, domain, specifications, volume, format, budget, fileUrl, timeline, qualityMetrics, buyerId, instructionId, buyerAnswers, labellingMethod, contentType, intent, timelineDays
+      name, domain, specifications, volume, format, budget, fileUrl, timeline, qualityMetrics, buyerId, instructionId, buyerAnswers, labellingMethod, contentType, intent, timelineDays, maxLabellers
     );
 
     logger.info("createDataset completed successfully", {

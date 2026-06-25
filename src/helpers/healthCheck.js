@@ -28,7 +28,6 @@ export const analyzeSystemHealth = async () => {
     let dbLatency = -1;
     try {
         if (dbStatus === 1) {
-            // Check if db object exists before calling admin()
             if (mongoose.connection.db) {
                 await mongoose.connection.db.admin().ping();
                 dbLatency = Date.now() - start;

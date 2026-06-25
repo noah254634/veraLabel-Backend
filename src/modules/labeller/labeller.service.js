@@ -60,7 +60,6 @@ export const labellerService = {
     const labeller = await Labeller.findOne({ userId: labellerUserId });
     if (!labeller) throw new Error('Labeller not found');
 
-    // Recalculate metrics
     const totalCompleted = labeller.performance.totalTasksCompleted + 1;
     const totalAssigned = labeller.performance.totalTasksAssigned || 1;
     const newAvgScore = (
@@ -152,10 +151,47 @@ export const labellerService = {
 
   getEarnings: async (labellerUserId) => {
     const labeller = await Labeller.findOne({ userId: labellerUserId })
-      .select('earnings');
+      .populate('completedTasksLog.taskId', 'taskName')
+      .select('earnings completedTasksLog');
 
     if (!labeller) throw new Error('Labeller not found');
-    return labeller.earnings;
+
+    const payouts = await Payout.find({ recipientUserId: labellerUserId }).sort({ createdAt: -1 });
+    const transactions = [];
+
+    payouts.forEach(p => {
+      transactions.push({
+        id: p._id.toString(),
+        type: 'payout',
+        amount: p.amount,
+        status: p.status === 'paid' ? 'completed' : p.status === 'processing' ? 'pending' : 'failed',
+        date: p.createdAt.toISOString(),
+        method: p.method === 'mobile_money' ? 'M-Pesa' : 'Bank Transfer',
+        reference: p.providerTransferId || p._id.toString().slice(-6).toUpperCase()
+      });
+    });
+
+    labeller.completedTasksLog?.forEach((log, index) => {
+      transactions.push({
+        id: `earn-${log._id || index}`,
+        type: 'earning',
+        amount: 1.50, // Standard mock earning rate per task
+        status: log.approvalStatus === 'approved' ? 'completed' : log.approvalStatus === 'pending' ? 'pending' : 'failed',
+        date: log.completedAt ? new Date(log.completedAt).toISOString() : new Date().toISOString(),
+        method: 'Task_Completion',
+        reference: log.taskId?.taskName || `Task-${log.taskId?._id || log.taskId}`
+      });
+    });
+
+    transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    return {
+      currentBalance: labeller.earnings?.currentBalance || 0,
+      totalEarned: labeller.earnings?.totalEarned || 0,
+      pendingPayment: labeller.earnings?.pendingPayment || 0,
+      lastPayoutDate: labeller.earnings?.lastPayoutDate || null,
+      transactions
+    };
   },
 
   updateEarnings: async (labellerUserId, amount, type = 'completed') => {
@@ -196,10 +232,8 @@ export const labellerService = {
       throw new Error(`Insufficient funds. Available: $${available.toFixed(2)}, Requested: $${amount.toFixed(2)}`);
     }
 
-    // Deduct earnings
     const updatedEarnings = await labellerService.updateEarnings(labellerUserId, amount, 'payout');
 
-    // Create Payout record
     const payout = await Payout.create({
       recipientUserId: labellerUserId,
       provider: 'paystack',
@@ -326,11 +360,9 @@ export const labellerService = {
       const labeller = await Labeller.findOne({ userId: labellerUserId });
       if (!labeller) throw new Error('Labeller not found');
 
-      // Update performance metrics with new rating
       const totalCompleted = labeller.performance.totalTasksCompleted;
       const currentAvgScore = labeller.performance.averageQualityScore;
       
-      // Recalculate average quality score
       const newAvgScore = (
         (currentAvgScore * totalCompleted + taskRating) / (totalCompleted + 1)
       ).toFixed(2);
@@ -437,7 +469,6 @@ export const labellerService = {
         };
       }
 
-      // Promote labeller to next tier
       const labeller = await Labeller.findOneAndUpdate(
         { userId: labellerUserId },
         {

@@ -7,10 +7,8 @@ const settingsRouter = express.Router();
 // All settings endpoints require admin authorization
 settingsRouter.use(protectRoute, authorize('admin', 'superadmin'));
 
-// Get current promotion thresholds
 settingsRouter.get('/promotion-thresholds', settingsController.getPromotionThresholds);
 
-// Update promotion thresholds
 settingsRouter.put('/promotion-thresholds', settingsController.updatePromotionThresholds);
 
 // Cache management (debugging/admin only)

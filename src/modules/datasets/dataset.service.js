@@ -87,6 +87,36 @@ const normalizeDatasetFormat = (format) => {
   return "json";
 };
 
+export const calculateDatasetTaskCounts = async (datasetId) => {
+  const totalTasksCount = await Task.countDocuments({ datasetId });
+
+  const batches = await Batch.find({ datasetId });
+  let totalCompleted = 0;
+  for (const batch of batches) {
+    const taskIds = batch.tasks;
+    for (const labellerId of batch.assignedTo) {
+      const submissionsCount = await Submission.countDocuments({
+        batchId: batch._id,
+        submittedBy: labellerId
+      });
+      const flaggedCount = await Task.countDocuments({
+        _id: { $in: taskIds },
+        status: 'flagged'
+      });
+      totalCompleted += Math.min(batch.totalTasks, submissionsCount + flaggedCount);
+    }
+  }
+
+  const verifiedTasksCount = await Submission.countDocuments({ datasetId, status: "approved" });
+  const submittedTasksCount = Math.max(0, totalCompleted - verifiedTasksCount);
+
+  return {
+    totalTasksCount,
+    submittedTasksCount,
+    verifiedTasksCount
+  };
+};
+
 export const datasetService = {
   generateUploadUrl: async (userId, fileType) => {
   
@@ -153,22 +183,16 @@ export const datasetService = {
     const datasets = await Dataset.find(filter).sort({ createdAt: -1 });
     return await Promise.all(datasets.map(async (d) => {
       const obj = d.toObject ? d.toObject() : d;
-      const totalTasksCount = await Task.countDocuments({ datasetId: obj._id });
-      const verifiedTasksCount = await Task.countDocuments({ datasetId: obj._id, status: "verified" });
-      obj.totalTasksCount = totalTasksCount;
-      obj.verifiedTasksCount = verifiedTasksCount;
-      return obj;
+      const counts = await calculateDatasetTaskCounts(obj._id);
+      return { ...obj, ...counts };
     }));
   },
   getDatasetById: async (id) => {
     const d = await Dataset.findById(id);
     if (!d) return null;
     const obj = d.toObject ? d.toObject() : d;
-    const totalTasksCount = await Task.countDocuments({ datasetId: obj._id });
-    const verifiedTasksCount = await Task.countDocuments({ datasetId: obj._id, status: "verified" });
-    obj.totalTasksCount = totalTasksCount;
-    obj.verifiedTasksCount = verifiedTasksCount;
-    return obj;
+    const counts = await calculateDatasetTaskCounts(obj._id);
+    return { ...obj, ...counts };
   },
   deleteDataset: async (id) => {
     if (!id) throw new Error("id is required");
@@ -302,7 +326,8 @@ export const datasetService = {
     labellingMethod,
     contentType,
     intent,
-    timelineDays
+    timelineDays,
+    maxLabellers
   ) => {
     const buyerExists = await Buyer.findById(buyerId);
     if (!buyerExists) throw new Error("Unauthorized access or buyer profile not found");
@@ -320,8 +345,8 @@ export const datasetService = {
       throw new Error("RLHF datasets require an evaluation protocol. Select a protocol with preference ranking or dimensional scoring.");
     }
     
-    // Step 1: Create a Dataset with type 'custom'
-    const priceValue = parseFloat(budget.toString().replace(/\$|,/g, "")) || 0;
+    const priceValue = budget ? parseFloat(budget.toString().replace(/\$|,/g, "")) || 0 : 0;
+    const parsedMaxLabellers = maxLabellers ? parseInt(maxLabellers, 10) : 1;
 
     const dataset = await Dataset.create({
       type: "custom",
@@ -333,6 +358,7 @@ export const datasetService = {
       contentType: normalizedContentType,
       volume,
       budget: priceValue,
+      maxLabellers: parsedMaxLabellers,
       format,
       timeline,
       timelineDays: timelineDays ? Number(timelineDays) : null,
@@ -348,7 +374,6 @@ export const datasetService = {
       price: 0, // Set price to 0 initially; updated after actual pricing / invoice generation
     });
 
-    // Step 2: If instructionId is provided, clone template into DatasetInstruction and link it
     if (instructionId) {
       const { InstructionTemplate, DatasetInstruction } = await import("./instruction.model.js");
       const template = await InstructionTemplate.findById(instructionId);
@@ -371,20 +396,16 @@ export const datasetService = {
         const activeRubrics = [];
         if (template.rubrics && Array.isArray(template.rubrics)) {
           template.rubrics.forEach(rubric => {
-            // Find the question that activates this rubric (if any)
             const questionMapping = template.buyerQuestions?.find(
               q => q.activatesRubric && q.activatesRubric.trim() === rubric.tag.trim()
             );
 
             if (questionMapping) {
               const buyerAnswer = answersMap[questionMapping.question.trim()];
-              // If the answer is "Yes" (case-insensitive), we activate it.
               if (buyerAnswer && buyerAnswer.trim().toLowerCase() === 'yes') {
                 activeRubrics.push(rubric);
               }
             } else {
-              // If there's no question activating this rubric, check if it's conditional.
-              // If it's not conditional, it's always active.
               if (!rubric.conditional) {
                 activeRubrics.push(rubric);
               }
@@ -527,7 +548,6 @@ export const datasetService = {
       }
     }
 
-    // Step 3: Trigger worker to start splitting
     const projectId = dataset.datasetLabeler?.toString() || dataset.buyerId?.toString() || "unknown";
 
     // Pre-create progress session to avoid concurrent creation race conditions in progress updates
@@ -571,7 +591,6 @@ export const datasetService = {
       
       const isOwner = dataset.buyerId && dataset.buyerId.toString() === user.id;
       if (!isOwner) {
-        // Check if there is an approved marketplace purchase order
         const order = await Order.findOne({
           buyerId: user.id,
           datasetId: dataset._id,

@@ -47,4 +47,18 @@ router.get('/verify/verify', PaymentController.verifyPayment)
  */
 router.get('/history', PaymentController.getPaymentHistory)
 
+/**
+ * @route   POST /api/v1/payments/withdraw/otp
+ * @desc    Request an OTP to authorize a withdrawal
+ * @access  Private (User specific)
+ */
+router.post('/withdraw/otp', PaymentController.requestWithdrawalOTP)
+
+/**
+ * @route   POST /api/v1/payments/withdraw
+ * @desc    Request a withdrawal to M-Pesa via Paystack Transfers (Requires OTP)
+ * @access  Private (User specific)
+ */
+router.post('/withdraw', PaymentController.withdraw)
+
 export const paymentRouter = router;

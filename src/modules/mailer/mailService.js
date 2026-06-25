@@ -97,6 +97,37 @@ const mailService = {
     });
     logger.info(`Verification email sent to ${email} with code ${verificationCode}`);
   },
+  sendWithdrawalOTPEmail: async (user, amount) => {
+    logger.info(`Sending withdrawal OTP email to ${user.email} for amount ${amount}`);
+    
+    // 1. Generate 6-digit OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // 2. Store in ResetPassword collection (used as generic OTP store)
+    await ResetPassword.findOneAndUpdate(
+      { email: user.email },
+      {
+        userId: user._id,
+        token: otpCode, // Plain text token for OTP, or could be hashed, but for simple 6-digit let's store plain for easy verification
+        email: user.email,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes expiry
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    // 3. Send email with the OTP
+    const html = templates.withdrawalOTPTemplate(user.name || "User", otpCode, amount);
+    await sendEmail({
+      to: user.email,
+      subject: "VeraLabel: Withdrawal Authorization Code",
+      html,
+    });
+    logger.info(`Withdrawal OTP email sent to ${user.email}`);
+  },
   sendPaymentConfirmationEmail: async (username,amount,datasetName) => {
     logger.info(`Sending payment confirmation email to ${username}`);
     const html =templates.paymentConfirmationTemplate(username, amount, datasetName);
@@ -224,7 +255,6 @@ const mailService = {
         throw new Error('Missing required promotion notification fields');
       }
 
-      // Get admin email(s) - fetch all admins
       const admins = await UserVera.find({ role: 'admin' }).select('email name');
       
       if (!admins || admins.length === 0) {

@@ -71,7 +71,6 @@ export const progressController = {
         });
       }
 
-      // Add all events in bulk with detailed logging
       const { session, addedCount, failedEvents } = await addEvents(projectId, datasetId, events);
 
       logger.info('Progress update processed', {
@@ -210,7 +209,6 @@ export const progressController = {
 
       logger.info('Stream connection initiated', { projectId, datasetId });
 
-      // Set headers for Server-Sent Events
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -227,7 +225,6 @@ export const progressController = {
         timestamp: new Date().toISOString(),
       })}\n\n`);
 
-      // Get or create session
       let session = await getSession(projectId, datasetId);
       if (!session) {
         session = await createSession(projectId, datasetId);

@@ -5,7 +5,7 @@ import Buyer from "../buyer/buyer.model.js";
 import Batch from "../tasks/task.batch.model.js";
 import GeoAccessLog from "./models/geoAccessLog.model.js";
 import GeoRequestAudit from "./models/geoRequestAudit.model.js";
-import { datasetService } from "../datasets/dataset.service.js";
+import { datasetService, calculateDatasetTaskCounts } from "../datasets/dataset.service.js";
 import Task from "../tasks/task.model.js";
 import Submission from "../tasks/task.submission.model.js";
 import { NotificationService } from "../notifications/notification.service.js";
@@ -17,11 +17,8 @@ import logger from "../../config/logger.js";
 const enrichDatasetWithTaskCounts = async (datasetDoc) => {
   if (!datasetDoc) return null;
   const dataset = datasetDoc.toObject ? datasetDoc.toObject() : datasetDoc;
-  const totalTasksCount = await Task.countDocuments({ datasetId: dataset._id });
-  const verifiedTasksCount = await Task.countDocuments({ datasetId: dataset._id, status: "verified" });
-  dataset.totalTasksCount = totalTasksCount;
-  dataset.verifiedTasksCount = verifiedTasksCount;
-  return dataset;
+  const counts = await calculateDatasetTaskCounts(dataset._id);
+  return { ...dataset, ...counts };
 };
 
 export const adminService = {
@@ -391,7 +388,6 @@ export const adminService = {
     );
     if (!dataset) throw new Error("Dataset not found");
     
-    // Update all related batches
     await Batch.updateMany(
       { datasetId: dataset._id },
       { $set: { maxLabellers } }
@@ -486,7 +482,6 @@ export const adminService = {
     const tasks = await Task.find({ datasetId });
     const requiredSubmissions = dataset.maxLabellers || 1;
 
-    // Get all approved submissions
     const submissions = await Submission.find({ datasetId, status: "approved" })
       .populate({
         path: "submittedBy",
@@ -704,7 +699,6 @@ export const adminService = {
       const pairwise = result.pairwise_iou || result.pairwiseIoU || {};
       const outliers = result.outliers || [];
 
-      // Update individual submission verificationScores based on average pairwise agreement
       const taskSubs = subMap[taskDoc._id.toString()] || [];
       for (const sub of taskSubs) {
         let scoreSum = 0.0;
@@ -730,7 +724,6 @@ export const adminService = {
       }
     }
 
-    // Calculate dataset-wide consensusIoU
     let taskScoreSum = 0.0;
     let taskScoreCount = 0;
     for (const result of results) {

@@ -11,14 +11,13 @@ export const onboardingService = {
     }
 
     const normalizedPayload = normalizeLabellerProfilePayload(payload);
-    const requiredFields = [
-      normalizedPayload.profile?.dateOfBirth,
-      normalizedPayload.profile?.gender,
-      normalizedPayload.profile?.location,
-    ];
+    const missingFields = [];
+    if (!normalizedPayload.profile?.dateOfBirth) missingFields.push("Date of Birth");
+    if (!normalizedPayload.profile?.gender) missingFields.push("Gender");
+    if (!normalizedPayload.profile?.location || Object.keys(normalizedPayload.profile.location).length === 0) missingFields.push("Location");
 
-    if (requiredFields.some((field) => !field || (Array.isArray(field) && field.length === 0))) {
-      throw new Error("All fields are required");
+    if (missingFields.length > 0) {
+      throw new Error(`The following fields are required: ${missingFields.join(', ')}`);
     }
 
     const existingLabeller = await Labeller.findOne({ userId });
@@ -132,13 +131,11 @@ export const onboardingService = {
       throw new Error("Invalid submission");
     }
 
-    // Fetch all quiz questions
     const questions = await TrainingQuiz.find({ quizId });
     if (!questions || questions.length === 0) {
       throw new Error("Quiz not found or has no active questions");
     }
 
-    // Calculate score
     let correctCount = 0;
     const feedback = [];
 
@@ -175,7 +172,6 @@ export const onboardingService = {
       completed: true,
     });
 
-    // Update labeler profile
     const profile = await Labeller.findOne({ userId });
     if (!profile) throw new Error("Labeler profile not found");
 
@@ -189,7 +185,6 @@ export const onboardingService = {
 
     await profile.save();
 
-    // Return structured result for frontend
     return {
       score,
       passed,

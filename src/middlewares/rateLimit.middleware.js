@@ -6,6 +6,16 @@ const createRateLimiter = ({
 } = {}) => {
   const hits = new Map();
 
+  // Periodically clean up expired keys to prevent memory leaks
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, current] of hits.entries()) {
+      if (current.resetAt <= now) {
+        hits.delete(key);
+      }
+    }
+  }, Math.max(windowMs, 60000)).unref();
+
   return (req, res, next) => {
     const now = Date.now();
     const key = `${keyGenerator(req)}:${req.path}`;

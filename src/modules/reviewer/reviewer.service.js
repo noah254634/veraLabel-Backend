@@ -91,7 +91,6 @@ export const reviewerService = {
       };
       await submission.save();
 
-      // Update reviewer metrics on their profile
       await updateReviewerMetrics(reviewerId, rating, true, submissionId);
 
       const batch = submission.batchId ? await Batch.findById(submission.batchId) : null;
@@ -101,7 +100,6 @@ export const reviewerService = {
         { $inc: { 'earnings.pending': reviewReward, 'earnings.total': reviewReward } }
       );
 
-      // Update parent Task
       const task = await Task.findById(submission.taskId);
       if (task) {
         task.status = 'verified';
@@ -409,7 +407,6 @@ export const reviewerService = {
       const task = submission.taskId;
       if (!task) throw new Error('Associated task not found');
 
-      // Fetch task input from R2
       let taskObject = null;
       if (task.r2_input_taskRef) {
         try {
@@ -441,7 +438,6 @@ export const reviewerService = {
         }
       }
 
-      // Fetch labeller's submission from R2
       let submissionObject = null;
       if (submission.r2_output_key) {
         try {
@@ -530,7 +526,6 @@ export const reviewerService = {
       };
       await submission.save();
 
-      // Update reviewer metrics on their profile
       await updateReviewerMetrics(reviewerId, 5, true, submissionId);
 
       const batch = submission.batchId ? await Batch.findById(submission.batchId) : null;
@@ -540,7 +535,6 @@ export const reviewerService = {
         { $inc: { 'earnings.pending': reviewReward, 'earnings.total': reviewReward } }
       );
 
-      // Update parent Task
       const task = await Task.findById(submission.taskId);
       if (task) {
         task.status = 'verified';
@@ -553,7 +547,6 @@ export const reviewerService = {
         await task.save();
       }
 
-      // Update labeller profile ratings
       const labeller = await Labeller.findById(submission.submittedBy);
       if (labeller) {
         const taskReward = await getTaskReward(batch);
@@ -594,7 +587,6 @@ export const reviewerService = {
       };
       await submission.save();
 
-      // Update reviewer metrics on their profile
       await updateReviewerMetrics(reviewerId, 1, false, submissionId);
 
       const batch = submission.batchId ? await Batch.findById(submission.batchId) : null;
@@ -604,7 +596,6 @@ export const reviewerService = {
         { $inc: { 'earnings.pending': reviewReward, 'earnings.total': reviewReward } }
       );
 
-      // Update labeller profile ratings
       const labeller = await Labeller.findById(submission.submittedBy);
       if (labeller) {
         const taskReward = await getTaskReward(batch);

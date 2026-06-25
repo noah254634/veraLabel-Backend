@@ -206,10 +206,8 @@ export const addEvent = async (projectId, datasetId, event) => {
     const { projectId: pId, datasetId: dId } = validateSessionIds(projectId, datasetId);
     const validatedEvent = validateEvent(event);
 
-    // Find the most recent session
     let session = await getMostRecentSession(pId, dId);
 
-    // Create new session if doesn't exist
     if (!session) {
       session = await createSession(pId, dId);
     }
@@ -231,13 +229,11 @@ export const addEvent = async (projectId, datasetId, event) => {
     session.events.push(enrichedEvent);
     session.lastUpdate = new Date();
 
-    // Update event metrics
     session.eventMetrics.processed += 1;
     if (validatedEvent.type === 'error') session.eventMetrics.errors += 1;
     if (validatedEvent.severity === 'warning') session.eventMetrics.warnings += 1;
     if (validatedEvent.type === 'checkpoint') session.eventMetrics.checkpoints += 1;
 
-    // Update session status based on event type with priority
     let hasFinalEvent = false;
     if (validatedEvent.type === 'error' && validatedEvent.severity === 'critical') {
       session.status = 'failed';
@@ -256,7 +252,6 @@ export const addEvent = async (projectId, datasetId, event) => {
       hasFinalEvent = true;
     }
 
-    // Update MongoDB
     if (hasFinalEvent) {
       await TaskProgressSession.updateOne(
         { sessionId: session.sessionId },
@@ -603,7 +598,6 @@ export const cleanupExpiredSessions = async () => {
       }
     }
 
-    // Update MongoDB sessions that timed out
     const timeoutTime = new Date(Date.now() - SESSION_TIMEOUT);
     const dbResult = await TaskProgressSession.updateMany(
       { status: 'processing', lastUpdate: { $lt: timeoutTime } },

@@ -386,6 +386,7 @@ const checkExistingBatchAssignment = async (labellerId) => {
 };
 
 const findAndLockAvailableBatch = async (datasetId, labellerId) => {
+  const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000); // 4 hour TTL
   return Batch.findOneAndUpdate(
     {
       datasetId,
@@ -402,9 +403,16 @@ const findAndLockAvailableBatch = async (datasetId, labellerId) => {
       $set: {
         status: 'in_progress',
         assignedAt: new Date(),
-        expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000) // 4 hour TTL
+        expiresAt
       },
-      $addToSet: { assignedTo: labellerId }
+      $addToSet: { assignedTo: labellerId },
+      $push: {
+        labellerAssignments: {
+          labellerId,
+          assignedAt: new Date(),
+          expiresAt
+        }
+      }
     },
     {
       sort: { priority: -1, createdAt: 1 },
@@ -429,7 +437,6 @@ const assignBatchTasksToLabeller = async (batch, labellerId) => {
     }
   );
 
-  // Add the tasks to the Labeller profile and increment totalTasksAssigned
   await Labeller.updateOne(
     { _id: labellerId },
     {
@@ -444,7 +451,6 @@ const performBatchRevocationCleanup = async (batchIds) => {
     return { revoked: 0, tasksReset: 0, submissionsDeleted: 0 };
   }
 
-  // Fetch affected task IDs first
   const affectedTaskIds = await Task.find(
     { batchId: { $in: batchIds } },
     { _id: 1 }
@@ -547,6 +553,7 @@ const performBatchRevocationCleanup = async (batchIds) => {
       $set: {
         status: 'available',
         assignedTo: [],
+        labellerAssignments: [],
         assignedAt: null,
         expiresAt: null,
         completedTasks: 0,
@@ -574,7 +581,6 @@ export const taskService = {
 
   createTask: async ({ datasetId, projectId, tasks, isLastBatch, serverUrl = null }) => {
     try {
-      // Validate inputs with defensive checks
       if (!datasetId || typeof datasetId !== 'string') {
         throw new Error('datasetId is required and must be a string');
       }
@@ -594,7 +600,7 @@ export const taskService = {
 
       const datasetRef = `projects/${projectId}/${datasetId}`;
       const datasetDoc = await Dataset.findById(datasetId)
-        .select("labellingMethod contentType domain")
+        .select("labellingMethod contentType domain maxLabellers")
         .lean();
 
       const taskEntries = tasks.map((task, index) => {
@@ -809,7 +815,9 @@ export const taskService = {
           datasetDoc?.labellingMethod
         );
         try {
-          invoice = await invoiceService.generateInvoice(invoiceTaskType, totalTasksInDataset);
+          const maxLabellers = datasetDoc?.maxLabellers || 1;
+          const totalAllocations = totalTasksInDataset * maxLabellers;
+          invoice = await invoiceService.generateInvoice(invoiceTaskType, totalAllocations);
           await Dataset.findByIdAndUpdate(
             datasetId,
             {
@@ -823,13 +831,15 @@ export const taskService = {
             datasetId: datasetId,
             status: "pending",
             taskType: invoiceTaskType,
-            rowsCount: totalTasksInDataset,
+            rowsCount: totalAllocations,
             ...invoice
           });
 
           logger.info('Invoice generated and stored', {
             invoiceTaskType,
             totalTasks: totalTasksInDataset,
+            maxLabellers,
+            totalAllocations,
             totalCost: invoice.totalCost
           });
 
@@ -1000,7 +1010,6 @@ export const taskService = {
           const presignedUrl = await r2ContentFetcher.getPresignedUrl(taskR2Url);
           taskObject = { url: presignedUrl };
 
-          // Check if a SAM 2 embedding file exists right next to the image
           if (contentType === 'image') {
             const embeddingKey = getEmbeddingR2Key(taskR2Url);
             try {
@@ -1131,7 +1140,6 @@ export const taskService = {
       if (user.role !== "labeler") throw new Error("User is not a labeler");
       if (task.isAssigned) throw new Error("Task already assigned");
 
-      // Update Task document
       task.isAssigned = true;
       if (!task.assignedTo) task.assignedTo = [];
       if (!task.assignedTo.includes(labeller._id)) {
@@ -1208,7 +1216,6 @@ export const taskService = {
         throw new Error("Task mismatch: This task does not belong to the specified batch or is not assigned to you.");
       }
 
-      // Check if this labeller has already submitted for this task
       const existingSubmission = await Submission.findOne({
         taskId: taskId,
         submittedBy: labeller._id
@@ -1235,7 +1242,6 @@ export const taskService = {
         throw new Error("Validation failed: You must upload the annotation payload to cloud storage before final submission.");
       }
 
-      // Validate uploaded annotation JSON before finalizing submission state.
       try {
         const getCommand = new GetObjectCommand({
           Bucket: process.env.R2_BUCKET_NAME,
@@ -1272,7 +1278,6 @@ export const taskService = {
       });
       await submission.save();
 
-      // Update task status and completion time
       task.status = 'submitted';
       task.completedAt = new Date();
       await task.save();
@@ -1545,7 +1550,6 @@ export const taskService = {
     try {
       if (!datasetId) throw new Error("datasetId is required for batching");
 
-      // Fetch all unbatched tasks for this dataset
       const datasetMeta = await Dataset.findById(datasetId)
         .select("labellingMethod contentType")
         .lean();
@@ -1648,7 +1652,6 @@ export const taskService = {
         return enrichBatchWithDataset(existingBatch);
       }
 
-      // Find and lock an available batch
       const batch = await findAndLockAvailableBatch(datasetId, labeller._id);
       if (!batch) {
         throw new Error("All active batches for this node are currently occupied or completed.");
@@ -1673,7 +1676,6 @@ export const taskService = {
       const labeller = await resolveLabellerDocument(labellerIdentifier);
       if (!labeller) throw new Error("Labeller profile not found");
 
-      // Find any batch that is currently 'in_progress' for this user
       const batch = await Batch.findOne({
         assignedTo: labeller._id,
         status: 'in_progress'
@@ -1681,19 +1683,16 @@ export const taskService = {
 
       if (!batch) return null;
 
-      // Fetch all submissions by this user for the tasks in the batch
       const submissions = await Submission.find({
         taskId: { $in: batch.tasks.map(t => t._id) },
         submittedBy: labeller._id
       }).lean();
 
-      // Fetch flagged tasks count for this batch
       const flaggedCount = await Task.countDocuments({
         _id: { $in: batch.tasks.map(t => t._id) },
         status: 'flagged'
       });
 
-      // If the user has completed all tasks in this batch, it is no longer active for them
       if (submissions.length + flaggedCount >= batch.totalTasks) {
         return null;
       }
@@ -1766,21 +1765,50 @@ export const taskService = {
       // ── Global cron mode: sweep all expired in_progress batches ───────────
       const expiredBatches = await Batch.find({
         status: 'in_progress',
-        expiresAt: { $lt: now }
-      }).lean();
-
-      if (expiredBatches.length === 0) return { revoked: 0 };
-
-      const batchIds = expiredBatches.map(b => b._id);
-      const cleanupResult = await performBatchRevocationCleanup(batchIds);
-
-      logger.info('Global batch expiry sweep complete', {
-        batchesRevoked: cleanupResult.revoked,
-        tasksReset: cleanupResult.tasksReset,
-        submissionsDeleted: cleanupResult.submissionsDeleted,
+        'labellerAssignments.expiresAt': { $lt: now }
       });
 
-      return cleanupResult;
+      if (expiredBatches.length === 0) return { revoked: 0, tasksReset: 0, submissionsDeleted: 0 };
+
+      let revokedCount = 0;
+      let tasksResetCount = 0;
+      let submissionsDeletedCount = 0;
+
+      for (const batch of expiredBatches) {
+        for (const assignment of batch.labellerAssignments) {
+          if (assignment.expiresAt < now) {
+            const submissionsCount = await Submission.countDocuments({
+              batchId: batch._id,
+              submittedBy: assignment.labellerId
+            });
+            const flaggedCount = await Task.countDocuments({
+              _id: { $in: batch.tasks },
+              status: 'flagged'
+            });
+
+            if (submissionsCount + flaggedCount < batch.totalTasks) {
+              const res = await taskService.revokeLabellerFromBatch(batch._id, assignment.labellerId);
+              if (res.success) {
+                revokedCount++;
+                tasksResetCount += (res.tasksReset || 0);
+                submissionsDeletedCount += (res.submissionsDeleted || 0);
+              }
+            }
+          }
+        }
+      }
+
+      logger.info('Global batch expiry sweep complete', {
+        assignmentsRevoked: revokedCount,
+        tasksReset: tasksResetCount,
+        submissionsDeleted: submissionsDeletedCount,
+      });
+
+      return {
+        revoked: revokedCount,
+        tasksReset: tasksResetCount,
+        submissionsDeleted: submissionsDeletedCount
+      };
     } catch (error) {
       logger.error('Error in revokeExpiredBatches', {
         error: error.message,
@@ -1912,7 +1940,6 @@ export const taskService = {
         if (existingSession) {
           const now = new Date();
           const lastUpdate = new Date(existingSession.lastUpdate || existingSession.createdAt);
-          // If it was updated less than 30 minutes ago, consider it active and block
           if (now - lastUpdate < 30 * 60 * 1000) {
             logger.warn(`Rejected concurrent generateMissingEmbeddings for dataset ${datasetId}`);
             return;
@@ -1986,5 +2013,145 @@ export const taskService = {
     })();
 
     return { success: true, message: "Missing embedding generation triggered in background." };
+  },
+
+  revokeLabellerFromBatch: async (batchId, labellerId) => {
+    try {
+      if (!batchId || !labellerId) {
+        throw new Error("batchId and labellerId are required");
+      }
+
+      logger.info('Revoking specific labeller from batch', { batchId, labellerId });
+
+      const batch = await Batch.findById(batchId);
+      if (!batch) {
+        logger.warn('Batch not found for revocation', { batchId });
+        return { success: false, reason: 'Batch not found' };
+      }
+
+      const taskIds = batch.tasks.map(id => id.toString());
+      if (taskIds.length === 0) {
+        return { success: true, message: 'No tasks in batch' };
+      }
+
+      // 1. Find and delete submissions for this labeller and batch tasks
+      const submissionsToDelete = await Submission.find({
+        batchId,
+        submittedBy: labellerId
+      }).lean();
+
+      const deletedCount = submissionsToDelete.length;
+      let submissionsDeletedResult = 0;
+      if (deletedCount > 0) {
+        const delRes = await Submission.deleteMany({
+          batchId,
+          submittedBy: labellerId
+        });
+        submissionsDeletedResult = delRes.deletedCount;
+      }
+
+      const taskReward = await getTaskReward(batch);
+
+      // 2. Update the labeller's profile metrics
+      const labeller = await Labeller.findById(labellerId);
+      if (labeller) {
+        const currentTotalAssigned = labeller.performance?.totalTasksAssigned || 0;
+        const decAmount = Math.min(currentTotalAssigned, taskIds.length);
+
+        const currentPendingPayment = labeller.earnings?.pendingPayment || 0;
+        const pendingDecAmount = Math.min(currentPendingPayment, deletedCount * taskReward);
+
+        await Labeller.updateOne(
+          { _id: labellerId },
+          {
+            $pull: { currentAssignedTasks: { $in: taskIds } },
+            $inc: {
+              'performance.totalTasksAssigned': -decAmount,
+              'earnings.pendingPayment': -pendingDecAmount
+            }
+          }
+        );
+        logger.info('Updated labeller metrics for revocation', {
+          labellerId,
+          decAmount,
+          pendingDecAmount
+        });
+      }
+
+      // 3. Update Tasks: pull labellerId from the tasks' assignedTo array
+      await Task.updateMany(
+        { _id: { $in: taskIds } },
+        { $pull: { assignedTo: labellerId } }
+      );
+
+      // 4. Find tasks that no longer have any assigned labellers, reset their status
+      const unassignedTasks = await Task.find({
+        _id: { $in: taskIds },
+        assignedTo: { $size: 0 }
+      }).select('_id');
+
+      if (unassignedTasks.length > 0) {
+        const unassignedIds = unassignedTasks.map(t => t._id);
+        await Task.updateMany(
+          { _id: { $in: unassignedIds } },
+          {
+            $set: {
+              status: 'pending',
+              isAssigned: false,
+              assignedAt: null,
+              startedAt: null,
+              completedAt: null
+            }
+          }
+        );
+        logger.info('Reset unassigned tasks status', { count: unassignedIds.length });
+      }
+
+      // 5. Update Batch: pull labellerId from assignedTo and labellerAssignments arrays
+      const updatedBatch = await Batch.findOneAndUpdate(
+        { _id: batchId },
+        {
+          $pull: {
+            assignedTo: labellerId,
+            labellerAssignments: { labellerId: labellerId }
+          }
+        },
+        { new: true }
+      );
+
+      if (updatedBatch) {
+        if (updatedBatch.assignedTo.length === 0) {
+          await Batch.updateOne(
+            { _id: batchId },
+            {
+              $set: {
+                status: 'available',
+                assignedAt: null,
+                expiresAt: null
+              }
+            }
+          );
+          logger.info('Batch reset to available as no labellers are assigned', { batchId });
+        } else {
+          const remainingAssignments = updatedBatch.labellerAssignments;
+          if (remainingAssignments && remainingAssignments.length > 0) {
+            const nextExpiresAt = new Date(Math.min(...remainingAssignments.map(a => new Date(a.expiresAt).getTime())));
+            await Batch.updateOne(
+              { _id: batchId },
+              { $set: { expiresAt: nextExpiresAt } }
+            );
+          }
+        }
+      }
+
+      return {
+        success: true,
+        submissionsDeleted: submissionsDeletedResult,
+        tasksReset: unassignedTasks.length
+      };
+    } catch (error) {
+      logger.error('Error in revokeLabellerFromBatch', { error: error.message, batchId, labellerId });
+      throw error;
+    }
   },
 };

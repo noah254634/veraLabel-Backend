@@ -1,4 +1,5 @@
 import Payment from "../models/payment.model.js";
+import axios from "axios";
 import { PaymentProvider } from "../payment.provider.js";
 import Dataset from "../../datasets/dataset.model.js";
 import Invoice from "../../datasets/invoice.model.js";
@@ -7,12 +8,15 @@ import mongoose from "mongoose";
 import logger from "../../../config/logger.js";
 import { ENV } from "../../../config/env.js";
 import crypto from "crypto";
+import UserVera from "../../users/user.model.js";
+import Labeller from "../../labeller/labeller.model.js";
+import Payout from "../models/payout.model.js";
+
 export const PaymentService = {
   success: async (reference) => {
     const payment = await Payment.findOne({ reference });
     if (!payment) throw new Error("No Payment with that reference was found");
     
-    // Return actual status for more accurate client-side feedback
     return payment.status; 
   },
   createPayment: async ({
@@ -68,7 +72,6 @@ export const PaymentService = {
     const payment = await Payment.findOne({ reference });
     if (!payment) throw new Error("Payment record not found");
 
-    // If already processed, return the record immediately (Idempotency)
     // This saves an external API call to Paystack for duplicate webhooks
     if (payment.status !== "pending") {
       logger.info(`Payment ${reference} already processed. Returning current state.`);
@@ -189,6 +192,91 @@ export const PaymentService = {
         userId
       });
       throw error;
+    }
+  },
+
+  requestWithdrawal: async (user, amount, phoneNumber) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      // 1. Fetch user to check balance
+      const labellerDoc = await Labeller.findOne({ userId: user._id }).session(session);
+      
+      if (labellerDoc) {
+        if ((labellerDoc.earnings?.currentBalance || 0) < amount) {
+          throw new Error("Insufficient balance");
+        }
+        labellerDoc.earnings.currentBalance -= amount;
+        labellerDoc.earnings.totalPayouts = (labellerDoc.earnings.totalPayouts || 0) + 1;
+        labellerDoc.earnings.lastPayoutDate = new Date();
+        await labellerDoc.save({ session });
+      } else {
+        const userDoc = await UserVera.findById(user._id).session(session);
+        if (!userDoc) throw new Error("User not found");
+        
+        if (userDoc.balance < amount) {
+          throw new Error("Insufficient balance");
+        }
+        userDoc.balance -= amount;
+        await userDoc.save({ session });
+      }
+
+      // 3. Conversion: Fetch live update for USD to KES
+      let conversionRate = 130; // Fallback rate
+      try {
+        const rateResponse = await axios.get("https://api.exchangerate-api.com/v4/latest/USD");
+        if (rateResponse.data && rateResponse.data.rates && rateResponse.data.rates.KES) {
+          conversionRate = rateResponse.data.rates.KES;
+          logger.info(`Fetched live exchange rate: 1 USD = ${conversionRate} KES`);
+        }
+      } catch (rateErr) {
+        logger.warn(`Failed to fetch live exchange rate, falling back to 130. Error: ${rateErr.message}`);
+      }
+      const amountKES = amount * conversionRate;
+
+      // Format phone number to standard 10-digit format (07... or 01...) for Paystack M-Pesa
+      let formattedPhone = phoneNumber.replace(/\D/g, '');
+      if (formattedPhone.startsWith('254')) {
+        formattedPhone = '0' + formattedPhone.slice(3);
+      }
+      
+      // 4. Create Paystack Transfer Recipient
+      const recipient = await PaymentProvider.createTransferRecipient(user.name, formattedPhone);
+      
+      const reference = `WD_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+      // 5. Initiate Transfer
+      const transferResponse = await PaymentProvider.initiateTransfer(
+        amountKES,
+        recipient.recipient_code,
+        reference
+      );
+
+      // 6. Create Payout Record
+      const payout = await Payout.create([{
+        recipientUserId: user._id,
+        provider: 'paystack',
+        providerTransferId: transferResponse.transfer_code,
+        amount: amount, // Keep original USD amount in db, or we could add KES
+        currency: 'USD',
+        method: 'mobile_money',
+        destination: {
+          mobileNetwork: 'MPESA',
+          phoneNumber: phoneNumber
+        },
+        status: 'processing', // or 'queued' depending on Paystack response
+        reference: reference
+      }], { session });
+
+      await session.commitTransaction();
+      session.endSession();
+      
+      return payout[0];
+    } catch (err) {
+      await session.abortTransaction();
+      session.endSession();
+      logger.error(`Withdrawal error: ${err.message}`);
+      throw err;
     }
   },
 };

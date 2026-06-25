@@ -19,7 +19,6 @@ export const r2ContentFetcher = {
         throw new Error('r2Ref is required and must be a string');
       }
 
-      // If there's an active content request for this r2Ref, return it
       if (activeContentRequests.has(r2Ref)) {
         logger.debug('Reusing active task content request from R2', { r2Ref });
         return activeContentRequests.get(r2Ref);
@@ -80,7 +79,6 @@ export const r2ContentFetcher = {
       const cacheKey = `${r2Ref}_${expiresIn}`;
       const now = Date.now();
 
-      // Check if URL cache hit and still valid
       if (urlCache.has(cacheKey)) {
         const cached = urlCache.get(cacheKey);
         if (cached.expiresAt > now) {
@@ -91,7 +89,6 @@ export const r2ContentFetcher = {
         }
       }
 
-      // Check if there is already an active request for this presigned URL
       if (activeUrlRequests.has(cacheKey)) {
         logger.debug('Reusing active presigned URL request', { r2Ref, expiresIn });
         return activeUrlRequests.get(cacheKey);
@@ -159,7 +156,6 @@ export const r2ContentFetcher = {
         return metadataCache.get(r2Ref);
       }
 
-      // Check if there is already an active request for this metadata
       if (activeMetadataRequests.has(r2Ref)) {
         logger.debug('Reusing active content metadata request', { r2Ref });
         return activeMetadataRequests.get(r2Ref);

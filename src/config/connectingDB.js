@@ -18,8 +18,8 @@ const connectDB = async () => {
       const conn = await mongoose.connect(mongo_uri, {
         serverSelectionTimeoutMS: 30000, // Increased to 30s for unstable networks
         socketTimeoutMS: 45000,
-        maxPoolSize: 10,
-        minPoolSize: 5,
+        maxPoolSize: 200,
+        minPoolSize: 20,
         retryWrites: true,
         w: "majority",
         family: 4,                       // Use IPv4

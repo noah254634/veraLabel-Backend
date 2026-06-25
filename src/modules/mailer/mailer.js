@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import {ENV} from "../../config/env.js";
+import { ENV } from "../../config/env.js";
 import logger from "../../config/logger.js";
 
 let transporter;
@@ -41,7 +41,7 @@ const sendEmail = async ({ to, subject, html }) => {
     }
 
     const info = await activeTransporter.sendMail({
-      from: "onboarding@resend.dev",
+      from: "support@veralabel.dev",
       to,
       subject,
       html,

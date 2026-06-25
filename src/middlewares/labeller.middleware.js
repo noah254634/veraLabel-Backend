@@ -10,7 +10,6 @@ export const attachLabeller = async (req, res, next) => {
       return next(new AppError('User not authenticated', 401));
     }
 
-    // Find the labeller profile associated with the authenticated user
     let labeller = await Labeller.findOne({ userId: req.user._id })
       .populate('userId', 'name email profilePicture role status');
     if(!req.geo){

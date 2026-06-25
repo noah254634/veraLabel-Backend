@@ -6,6 +6,11 @@ import { ENV } from "../../../config/env.js";
 import Dataset from "../../datasets/dataset.model.js";
 import { asyncHandler, AppError } from "../../../middlewares/errorHandler.middleware.js";
 import ResponseHandler from "../../../helpers/responseHandler.js";
+import Payout from "../models/payout.model.js";
+import UserVera from "../../users/user.model.js";
+import Labeller from "../../labeller/labeller.model.js";
+import mailService from "../../mailer/mailService.js";
+import ResetPassword from "../../auth/resetPassword.model.js";
 
 export const PaymentController = {
   success: asyncHandler(async (req, res) => {
@@ -88,10 +93,44 @@ export const PaymentController = {
         throw new Error("Invalid signature");
 
       const event = req.body;
+      
       if (event.event === "charge.success") {
         const payment = await PaymentService.verifyPayment(event.data.reference);
         return res.json(payment);
       }
+      
+      // Handle transfer events
+      if (event.event === "transfer.success" || event.event === "transfer.failed" || event.event === "transfer.reversed") {
+        
+        const reference = event.data.reference;
+        const payout = await Payout.findOne({ reference });
+        
+        if (payout) {
+          if (event.event === "transfer.success") {
+            payout.status = 'paid';
+            payout.processedAt = new Date();
+            await payout.save();
+          } else {
+            payout.status = 'failed';
+            payout.failureReason = event.data.reason || event.event;
+            await payout.save();
+            
+            // Refund the user since the transfer failed
+            const labeller = await Labeller.findOne({ userId: payout.recipientUserId });
+            if (labeller) {
+              labeller.earnings.currentBalance += payout.amount;
+              await labeller.save();
+            } else {
+              const user = await UserVera.findById(payout.recipientUserId);
+              if (user) {
+                user.balance += payout.amount;
+                await user.save();
+              }
+            }
+          }
+        }
+      }
+      
       return res.sendStatus(200);
     } catch (err) {
       logger.error(`Webhook error: ${err.message}`);
@@ -111,5 +150,47 @@ export const PaymentController = {
     if (!userId) throw new AppError("Unauthorized — user not found", 401);
     const payments = await PaymentService.getPaymentHistory(userId);
     return ResponseHandler.success(res, { payments }, "Payment history fetched");
+  }),
+
+  requestWithdrawalOTP: asyncHandler(async (req, res) => {
+    const { amount } = req.body;
+    if (!amount || amount <= 0) {
+      throw new AppError("A valid amount is required", 400);
+    }
+    await mailService.sendWithdrawalOTPEmail(req.user, amount);
+    return ResponseHandler.success(res, null, "Withdrawal OTP sent to your email");
+  }),
+
+  withdraw: asyncHandler(async (req, res) => {
+    const { amount, phoneNumber, otp } = req.body;
+    
+    if (!amount || amount <= 0) {
+      throw new AppError("A valid amount is required", 400);
+    }
+    if (!phoneNumber) {
+      throw new AppError("Phone number is required for M-Pesa withdrawal", 400);
+    }
+    if (!otp) {
+      throw new AppError("OTP is required to authorize withdrawal", 400);
+    }
+
+    // Verify OTP
+    const otpDoc = await ResetPassword.findOne({
+      userId: req.user._id,
+      token: otp,
+      expiresAt: { $gt: Date.now() },
+    });
+
+    if (!otpDoc) {
+      throw new AppError("Invalid or expired OTP", 400);
+    }
+
+    // OTP is valid, proceed
+    const payout = await PaymentService.requestWithdrawal(req.user, amount, phoneNumber);
+    
+    // Delete OTP so it can't be reused
+    await otpDoc.deleteOne();
+
+    return ResponseHandler.success(res, { payout }, "Withdrawal request submitted successfully");
   }),
 };

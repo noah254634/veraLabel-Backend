@@ -8,10 +8,10 @@ import { createRateLimiter } from '../../middlewares/rateLimit.middleware.js'
 
 const router = express.Router()
 
-const tasksReadLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 120 })
-const tasksWriteLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 30 })
-const progressLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 1000 })
-const adminLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 100 })
+const tasksReadLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 1000 })
+const tasksWriteLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 500 })
+const progressLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 10000 })
+const adminLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 500 })
 
 // Submissions (Admin/Reviewer/Buyer/Superadmin)
 router.get('/getTaskSubmissions', protectRoute, authorize('admin', 'superadmin', 'reviewer', 'buyer'), tasksReadLimiter, taskController.getTaskSubmissions)

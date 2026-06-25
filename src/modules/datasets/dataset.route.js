@@ -6,10 +6,8 @@ import { Upload } from "./datasets.multer.js";
 import { prepareDatasetVersion } from "../../middlewares/version.middleware.js";
 import {datasetController} from "./dataset.controller.js";
 router.use(protectRoute)
-// Create a dataset request (buyer side)
 router.post("/createDataset", attachBuyer, datasetController.createDataset);
 
-// Get all datasets
 router.get("/allDatasets", datasetController.getAllDatasets);
 router.post("/confirmUpload",datasetController.confirmUpload)
 // Optional: filter datasets by type or status
@@ -17,13 +15,10 @@ router.get("/filter", datasetController.filterDatasets);
 router.post("/generateUploadUrl",datasetController.generateUploadUrl);
 router.get("/buyerSideDatasets",protectRoute,datasetController.buyerSideDatasets);
 
-// Get secure download link
 router.get("/:id/download", datasetController.downloadDataset);
 
-// Get a single dataset by ID
 router.get("/:id", datasetController.getDatasetById);
 
-// Update a dataset by ID
 router.put(
   "/updateDataset/:id",
   prepareDatasetVersion,

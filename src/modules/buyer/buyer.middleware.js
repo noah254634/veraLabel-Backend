@@ -10,7 +10,6 @@ export const attachBuyer = async (req, res, next) => {
       return next(new AppError('User not authenticated', 401));
     }
 
-    // Find the buyer profile associated with the authenticated user
     let buyer = await Buyer.findOne({ userId: req.user._id })
       .populate('userId', 'name email profilePicture role status');
 

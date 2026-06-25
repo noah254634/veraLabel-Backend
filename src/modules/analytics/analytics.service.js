@@ -332,7 +332,6 @@ const analyticsService = {
 
       // Fallback if no categories are found in orders yet
       if (topCategories.length === 0) {
-        // Find categories from general datasets
         const generalCategoriesAgg = await Dataset.aggregate([
           {
             $group: {

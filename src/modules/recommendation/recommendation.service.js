@@ -32,7 +32,6 @@ const getUserSubmittedDatasets = async ({ labellerId, userId, limit = DEFAULT_LI
   const match = {};
   if (labellerId) match.submittedBy = labellerId;
 
-  // If userId provided, try to resolve a Labeller by userId reference
   if (!labellerId && userId) {
     const labeller = await Task.db.model('Labeller').findOne({ userId }).select('_id').lean();
     if (labeller) match.submittedBy = labeller._id;

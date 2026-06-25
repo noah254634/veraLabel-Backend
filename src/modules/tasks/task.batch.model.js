@@ -20,6 +20,13 @@ const batchSchema = new mongoose.Schema(
     assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Labeller' }], // Array of Labeller IDs
     assignedAt: { type: Date },
     expiresAt: { type: Date }, // For auto-revocation logic
+    labellerAssignments: [
+      {
+        labellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Labeller', required: true },
+        assignedAt: { type: Date, default: Date.now },
+        expiresAt: { type: Date, required: true }
+      }
+    ],
     completedAt: { type: Date },
     
     batchType: { type: String }, // primary content modality for the batch

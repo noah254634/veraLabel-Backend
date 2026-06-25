@@ -71,7 +71,6 @@ const isPrivateOrLoopbackIp = (ip) => {
 };
 
 export const geoMiddleware = (req, res, next) => {
-  // Check if geo checks are bypassed completely via environment variable
   if (process.env.BYPASS_GEO_CHECK === 'true') {
     req.geo = { country: 'KE', city: 'Bypassed (Env Flag)', timezone: 'Africa/Nairobi', coords: [-1.2865, 36.8172] };
     return next();

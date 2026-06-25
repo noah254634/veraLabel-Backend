@@ -65,6 +65,35 @@ const templates = {
     </div>
   </div>
 `,
+  withdrawalOTPTemplate: (username, otp, amount) => `
+  <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #1e293b; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);">
+    <div style="text-align: center; margin-bottom: 30px; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px;">
+      <h2 style="color: #10b981; margin: 0; font-size: 24px; font-weight: 800; tracking-tight: -0.025em;">VeraLabel Withdrawal Authorization</h2>
+      <p style="font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin: 5px 0 0 0; font-weight: 600;">Security Transmission</p>
+    </div>
+    
+    <p style="font-size: 16px; line-height: 1.6; margin-bottom: 15px;">Hello <strong>${username}</strong>,</p>
+    
+    <p style="font-size: 16px; line-height: 1.6; margin-bottom: 25px; color: #475569;">A withdrawal request for <strong>$${amount}</strong> was initiated from your VeraLabel wallet. To authorize this transaction, please enter the following 6-digit One-Time Password (OTP) in the withdrawal interface:</p>
+    
+    <div style="text-align: center; margin: 35px 0;">
+      <span style="display: inline-block; font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 800; color: #1e1b4b; background-color: #f8fafc; padding: 16px 40px; border-radius: 12px; letter-spacing: 8px; border: 1px solid #cbd5e1; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);">
+        ${otp}
+      </span>
+    </div>
+    
+    <p style="font-size: 13px; color: #ef4444; margin-bottom: 30px; font-weight: 500; text-align: center; background-color: #fef2f2; padding: 10px; border-radius: 8px; border: 1px solid #fee2e2;">
+      ⚠️ This authorization code expires in 10 minutes and should not be shared with anyone.
+    </p>
+    
+    <p style="font-size: 15px; line-height: 1.6; margin-bottom: 30px; color: #475569;">If you did not request this withdrawal, please secure your account immediately by changing your password.</p>
+    
+    <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; font-size: 12px; color: #94a3b8; font-weight: 500;">
+      <p style="margin: 0 0 5px 0;">This is an automated system message. Do not reply to this address.</p>
+      <p style="margin: 0;">VeraLabel Security Protocol © 2026</p>
+    </div>
+  </div>
+`,
   paymentConfirmationTemplate: (username, amount, datasetName) => `
   <h1>Payment Confirmed</h1>
   <p>Hi ${username},</p>
