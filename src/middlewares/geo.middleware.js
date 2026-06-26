@@ -32,16 +32,17 @@ const cleanIp = (ipAddress) => {
 // Helper to check if IP is private/loopback
 const isPrivateOrLoopbackIp = (ip) => {
   if (!ip) return true;
-  if (ip === 'localhost' || ip === '127.0.0.1' || ip === '::1' || ip === '::') {
+  const clean = ip.toLowerCase();
+  if (clean === 'localhost' || clean === '127.0.0.1' || clean === '::1' || clean === '::') {
     return true;
   }
   
   // Class A: 10.0.0.0/8
-  if (ip.startsWith('10.')) return true;
+  if (clean.startsWith('10.')) return true;
   
   // Class B: 172.16.0.0/12
-  if (ip.startsWith('172.')) {
-    const parts = ip.split('.');
+  if (clean.startsWith('172.')) {
+    const parts = clean.split('.');
     if (parts.length >= 2) {
       const secondOctet = parseInt(parts[1], 10);
       if (secondOctet >= 16 && secondOctet <= 31) {
@@ -51,20 +52,30 @@ const isPrivateOrLoopbackIp = (ip) => {
   }
   
   // Class C: 192.168.0.0/16
-  if (ip.startsWith('192.168.')) return true;
+  if (clean.startsWith('192.168.')) return true;
   
-  // Link-local: 169.254.0.0/16
-  if (ip.startsWith('169.254.')) return true;
+  // Link-local IPv4: 169.254.0.0/16
+  if (clean.startsWith('169.254.')) return true;
   
   // CGNAT: 100.64.0.0/10
-  if (ip.startsWith('100.')) {
-    const parts = ip.split('.');
+  if (clean.startsWith('100.')) {
+    const parts = clean.split('.');
     if (parts.length >= 2) {
       const secondOctet = parseInt(parts[1], 10);
       if (secondOctet >= 64 && secondOctet <= 127) {
         return true;
       }
     }
+  }
+
+  // Link-local IPv6: fe80::/10
+  if (clean.startsWith('fe8') || clean.startsWith('fe9') || clean.startsWith('fea') || clean.startsWith('feb')) {
+    return true;
+  }
+
+  // Unique Local IPv6: fc00::/7
+  if (clean.startsWith('fc') || clean.startsWith('fd')) {
+    return true;
   }
   
   return false;
@@ -86,6 +97,7 @@ export const geoMiddleware = (req, res, next) => {
     req.socket.remoteAddress;
 
   const ip = cleanIp(rawIp);
+  const isRestrictedRoute = isLabellerRoute(req.originalUrl);
 
   // Bypass geo lookup for local/private/loopback IPs
   if (isPrivateOrLoopbackIp(ip)) {
@@ -117,26 +129,33 @@ export const geoMiddleware = (req, res, next) => {
   let country, city, timezone, ll;
 
   const cfCountry = req.headers['x-cloudflare-country'] || req.headers['cf-ipcountry'];
-  if (cfCountry && cfCountry !== 'XX') {
+  const geo = geoip.lookup(ip);
+
+  if (geo) {
+    country = cfCountry && cfCountry !== 'XX' ? cfCountry : geo.country;
+    city = geo.city || 'Unknown';
+    timezone = geo.timezone || 'Unknown';
+    ll = geo.ll || [];
+  } else if (cfCountry && cfCountry !== 'XX') {
     country = cfCountry;
     city = req.headers['x-cloudflare-city'] || 'Unknown (CF Header)';
     timezone = 'Unknown';
     ll = [];
   } else {
-    const geo = geoip.lookup(ip);
-    if (!geo) {
-      logger.warn(`GeoIP Warning: Unable to determine location for IP: ${ip}. Raw IP source: ${rawIp}`);
+    // If the lookup failed and this is a restricted route, we must block it
+    if (isRestrictedRoute) {
+      logger.warn(`GeoIP Warning: Unable to determine location for IP: ${ip} on restricted route ${req.originalUrl}. Raw IP source: ${rawIp}`);
       return res.status(400).json({
         message: 'Unable to determine your location'
       });
     }
-    country = geo.country;
-    city = geo.city;
-    timezone = geo.timezone;
-    ll = geo.ll;
+    // For non-restricted routes, log a warning but allow the request to proceed with default values
+    logger.warn(`GeoIP Warning: Unable to determine location for IP: ${ip} on public route ${req.originalUrl}. Proceeding with default values.`);
+    country = 'Unknown';
+    city = 'Unknown';
+    timezone = 'Unknown';
+    ll = [];
   }
-
-  const isRestrictedRoute = isLabellerRoute(req.originalUrl);
 
   // Log telemetry (aggregates and chronological request auditing)
   logGeoTelemetry(req, res, { ip, country, city, timezone, coords: ll, isLabellerRoute: isRestrictedRoute });
@@ -157,4 +176,4 @@ export const geoMiddleware = (req, res, next) => {
   };
   
   next();
-}
+};
