@@ -27,18 +27,37 @@ export const asyncHandler = (fn) => {
 /**
  * Global error handling middleware
  * Must be added LAST in app.js after all other routes
+ *
+ * Log level strategy:
+ *   AppError (operational, expected)  → warn for 4xx, error for 5xx
+ *   Unexpected errors (bugs, crashes) → error + full stack
  */
 export const errorHandler = (err, req, res, next) => {
   const isDevelopment = ENV().NODE_ENV !== "production";
+  const isAppError   = err.name === "AppError";
+  const statusCode   = err.statusCode || 500;
+  const is5xx        = statusCode >= 500;
 
-  logger.error({
-    message: err.message,
-    path: req.path,
+  const meta = {
+    status: statusCode,
+    path:   req.path,
     method: req.method,
-    ip: req.ip || req.connection?.remoteAddress,
-    timestamp: new Date().toISOString(),
-    ...(isDevelopment && { stack: err.stack }),
-  });
+    ip:     req.ip || req.connection?.remoteAddress,
+  };
+
+  if (isAppError) {
+    // Operational error — working as designed (auth failures, validation, blocks, etc.)
+    // 4xx → warn (expected, no stack needed)
+    // 5xx AppErrors → error (shouldn't happen but worth flagging)
+    if (is5xx) {
+      logger.error(err.message, { ...meta, ...(isDevelopment && { stack: err.stack }) });
+    } else {
+      logger.warn(err.message, meta);
+    }
+  } else {
+    // Unexpected error — bug or infrastructure failure — always log with stack
+    logger.error(err.message, { ...meta, stack: err.stack });
+  }
 
   const sanitized = sanitizeErrorResponse(err, isDevelopment);
 
@@ -48,7 +67,8 @@ export const errorHandler = (err, req, res, next) => {
     success: false,
     message: sanitized.message,
     timestamp: new Date().toISOString(),
-    ...(isDevelopment && { stack: err.stack }),
+    // Stack only in dev, only for unexpected errors
+    ...(isDevelopment && !isAppError && { stack: err.stack }),
   });
 };
 

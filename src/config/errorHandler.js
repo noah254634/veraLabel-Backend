@@ -1,23 +1,8 @@
-import logger from "./logger.js";
+import logger from '../config/logger.js';
 
 
 export const sanitizeErrorResponse = (error, isDevelopment = false) => {
   const errorType = error.name || error.constructor.name;
-  
-
-  if (errorType === "AppError") {
-    logger.info(`AppError: ${error.message}`);
-  } else {
-
-    logger.error({
-      type: errorType,
-      message: error.message,
-      stack: error.stack,
-      ...(error.code && { code: error.code }),
-    });
-  }
-
-
   if (isDevelopment) {
     return {
       status: error.statusCode || 500,
