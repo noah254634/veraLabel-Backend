@@ -22,6 +22,7 @@ import { createRateLimiter } from "./middlewares/rateLimit.middleware.js";
 import labellerRouter from "./modules/labeller/labeller.routes.js";
 import buyerRouter from "./modules/buyer/buyer.route.js";
 import notificationRouter from "./modules/notifications/notification.route.js";
+import videoRouter from "./modules/video/video.route.js";
 import { analyzeSystemHealth } from "./helpers/healthCheck.js";
 
 const router=express.Router();
@@ -77,4 +78,5 @@ router.use("/analytics",protectRoute,checkisBlocked,analyticsRouter);
 router.use("/onboarding",protectRoute,checkisBlocked,onboardinRouter);
 router.use('/tasks',taskRouter)
 router.use('/notifications', notificationRouter);
+router.use('/video', videoRouter);
 export default router;

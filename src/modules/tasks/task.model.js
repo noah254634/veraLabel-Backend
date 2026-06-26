@@ -39,6 +39,25 @@ const taskSchema = new Schema({
     default: false
   },
 
+  // Video-specific fields (only populated for contentType='video')
+  isSeedFrame: {
+    type: Boolean,
+    default: false,
+    description: 'If true, labellers must annotate this frame. SAM2 propagates from seed frames to all others.'
+  },
+
+  videoFrameIndex: {
+    type: Number,
+    default: null,
+    description: 'Zero-based frame index within the parent video sequence'
+  },
+
+  videoJobId: {
+    type: String,
+    default: null,
+    description: 'ID of the VideoJob that auto-propagated this frame (null for seed frames)'
+  },
+
 
   r2_datasetUrl: {
     type: String,

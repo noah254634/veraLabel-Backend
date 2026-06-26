@@ -16,6 +16,14 @@ import { normalizeContentType, isLegacyRlhfTaskType } from "./taskContentType.js
 import { addEvents, addEvent, createSession } from "./progress.service.js";
 import TaskProgressSession from "./task.progress.model.js";
 
+/**
+ * Sanitizes a path to prevent directory traversal.
+ * It removes leading slashes and resolves any '..' segments.
+ * @param {string} path - The path to sanitize.
+ * @returns {string} The sanitized path.
+ */
+const sanitizeR2Key = (path) => (path || '').replace(/^\/+/, '').replace(/\.\.\//g, '');
+
 
 const normalizeTaskTypeForInvoice = (contentTypeOrLegacy, labellingMethod) => {
   try {
@@ -616,7 +624,7 @@ export const taskService = {
         const contentType = normalizeContentType(normalizedTask, datasetDoc);
         return {
           r2_datasetUrl: datasetRef,
-          r2_input_taskRef: r2Ref,
+          r2_input_taskRef: sanitizeR2Key(r2Ref),
           datasetId: datasetId,
           contentType,
           taskType: contentType,

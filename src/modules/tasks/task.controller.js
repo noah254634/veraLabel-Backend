@@ -70,7 +70,7 @@ export const taskController = {
   getTaskById: asyncHandler(async (req, res) => {
     const { id } = req.params;
     if (!id) throw new AppError("Task id is required", 400);
-    const response = await taskService.getTaskById(id);
+    const response = await taskService.getTaskById(id, req.user);
     return ResponseHandler.success(res, response, "Task fetched");
   }),
 
