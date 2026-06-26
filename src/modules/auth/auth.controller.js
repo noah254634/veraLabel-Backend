@@ -73,8 +73,9 @@ export const authController={
     validateRequiredFields(req.body, ['email']);
     const { email } = req.body;
     
-    const result=await authService.forgotPassword(email);
-    return ResponseHandler.success(res, result, "Password reset email sent successfully");
+    await authService.forgotPassword(email);
+    // Generic message regardless of whether the email is registered
+    return ResponseHandler.success(res, null, "If this email is registered, you will receive a password reset email shortly.");
   }),
 
   resetPassword: asyncHandler(async(req,res)=>{
@@ -89,10 +90,12 @@ export const authController={
     validateRequiredFields(req.body, ['email']);
     const { email } = req.body;
     const user = await UserVera.findOne({ email });
-    if (!user) throw new AppError("User not found", 404);
-    if (user.isVerified) throw new AppError("Email already verified", 400);
+    // Return the same response whether or not the email exists — prevents enumeration
+    if (!user || user.isVerified) {
+      return ResponseHandler.success(res, null, "If this email is registered and unverified, a verification code has been sent.");
+    }
 
     await mailService.sendVerificationEmail(email, user.name);
-    return ResponseHandler.success(res, null, "Verification code resent successfully");
+    return ResponseHandler.success(res, null, "If this email is registered and unverified, a verification code has been sent.");
   })
 }

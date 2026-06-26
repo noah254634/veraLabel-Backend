@@ -21,7 +21,7 @@ export const PaymentController = {
   }),
 
   createPayment: asyncHandler(async (req, res) => {
-    const generateReference = () => `PAY_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const generateReference = () => `PAY_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const reference = generateReference();
 
     if (req.user.role !== "buyer") throw new AppError("Unauthorized — user is not a buyer", 403);
@@ -34,7 +34,7 @@ export const PaymentController = {
       const dataset = await Dataset.findOne({ _id: datasetId });
       if (!dataset) throw new AppError("Dataset not found", 404);
 
-      const redirectUrl = "https://insightful-marica-unsenescent.ngrok-free.dev/payment/verify";
+      const redirectUrl = `${ENV().frontend_url || 'http://localhost:5173'}/payment/verify`;
       const datasetPrice = isExclusive ? dataset.exclusivePrice : dataset.price;
       if (!datasetPrice) throw new AppError("Dataset has no price for this purchase type", 400);
 
@@ -60,7 +60,7 @@ export const PaymentController = {
       const parsedAmount = parseFloat(amount.toString().replace(/[^0-9.-]+/g, ""));
       if (isNaN(parsedAmount)) throw new AppError("Invalid amount format", 400);
 
-      const redirectUrl = "https://insightful-marica-unsenescent.ngrok-free.dev/payment/verify";
+      const redirectUrl = `${ENV().frontend_url || 'http://localhost:5173'}/payment/verify`;
       const order = await buyerService.createOrder(req.buyer._id, requestId, reference, parsedAmount);
       const result = await PaymentService.createPayment({
         order: order._id, user: req.user, amount: parsedAmount,
@@ -84,15 +84,26 @@ export const PaymentController = {
   handleWebhook: async (req, res) => {
     logger.info(`Webhook received: ${req.method} ${req.originalUrl}`);
     try {
+      // req.body is a raw Buffer when the route uses express.raw()
+      const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body));
+
       const hash = crypto
         .createHmac("sha512", ENV().paystack_secret_key)
-        .update(JSON.stringify(req.body))
+        .update(rawBody)
         .digest("hex");
 
-      if (hash !== req.headers["x-paystack-signature"])
+      // Use constant-time comparison to prevent timing attacks
+      const sig = req.headers["x-paystack-signature"] || "";
+      const hashBuf = Buffer.from(hash, "hex");
+      const sigBuf  = Buffer.from(sig, "hex");
+      if (
+        hashBuf.length !== sigBuf.length ||
+        !crypto.timingSafeEqual(hashBuf, sigBuf)
+      ) {
         throw new Error("Invalid signature");
+      }
 
-      const event = req.body;
+      const event = JSON.parse(rawBody.toString());
       
       if (event.event === "charge.success") {
         const payment = await PaymentService.verifyPayment(event.data.reference);
@@ -174,10 +185,11 @@ export const PaymentController = {
       throw new AppError("OTP is required to authorize withdrawal", 400);
     }
 
-    // Verify OTP
-    const otpDoc = await ResetPassword.findOne({
+    // Atomically find and delete the OTP — prevents race conditions where two
+    // simultaneous withdrawal requests could both pass the same OTP check.
+    const otpDoc = await ResetPassword.findOneAndDelete({
       userId: req.user._id,
-      token: otp,
+      token: crypto.createHash('sha256').update(otp).digest('hex'),
       expiresAt: { $gt: Date.now() },
     });
 
@@ -185,11 +197,8 @@ export const PaymentController = {
       throw new AppError("Invalid or expired OTP", 400);
     }
 
-    // OTP is valid, proceed
+    // OTP verified — now process the withdrawal
     const payout = await PaymentService.requestWithdrawal(req.user, amount, phoneNumber);
-    
-    // Delete OTP so it can't be reused
-    await otpDoc.deleteOne();
 
     return ResponseHandler.success(res, { payout }, "Withdrawal request submitted successfully");
   }),

@@ -3,15 +3,26 @@ import router from "./routes.js";
 import {ENV, isLocalNetworkOrigin, isPagesDevOrigin, isTryCloudflareOrigin} from "./config/env.js";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import helmet from "helmet";
 import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.middleware.js";
 import { geoMiddleware } from "./middlewares/geo.middleware.js";
 import { arcjetProtectRoute } from "./middlewares/arcjet.middleware.js";
 import morgan from "morgan";
+import {blockSensitivePaths} from "./middlewares/security.middleware.js";
 
 import "./config/firebase.admin.js";
 const app=express();
 app.set("trust proxy", true);
-app.use(morgan("dev"));
+
+// Security headers — must come before routes
+app.use(helmet());
+
+// Use verbose logging in dev, standard combined format in production
+app.use(morgan(ENV().NODE_ENV === "production" ? "combined" : "dev"));
+
+// Raw body parser for Paystack webhook — MUST come before express.json()
+// Paystack signs the raw bytes; re-serializing with JSON.stringify breaks the HMAC.
+app.use("/api/v1/payments/paystack/webhook", express.raw({ type: "application/json" }));
 
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
@@ -101,7 +112,7 @@ app.use(cors(corsOptions));
 
 
 app.use(geoMiddleware);
-
+app.use(blockSensitivePaths);
 app.use(arcjetProtectRoute);
 app.use("/api/v1",router)
 

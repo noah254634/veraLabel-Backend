@@ -87,7 +87,9 @@ export const authService = {
   forgotPassword: async (email) => {
     if (!email) throw new AppError("Email is required", 400);
     const user = await UserVera.findOne({ email });
-    if (!user) throw new AppError("Email not found", 404);
+    // Always return the same response whether the email is registered or not —
+    // different responses allow attackers to enumerate valid accounts.
+    if (!user) return { sent: false };
 
     const now = new Date();
     const COOLDOWN_MS = 60 * 1000; // 1 minute

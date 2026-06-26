@@ -26,7 +26,7 @@ export const PaymentProvider = {
             }
           ]
         },
-        callback_url: `http://localhost:5173/payments/success`
+        callback_url: `${ENV().frontend_url || 'http://localhost:5173'}/payments/success`
       })
       if (!response || !response.status) {
         const message = response?.message || 'Paystack payment initialization failed';

@@ -5,6 +5,10 @@ import app from "./app.js";
 import mongoose, { set } from "mongoose";
 import logger from "./config/logger.js";
 import startTaskCleanUp from "./helpers/cronJobs.js";
+import { validateEnvSecurity } from "./config/errorHandler.js";
+
+// Audit that sensitive env vars are loaded but not accidentally exposed via logs
+validateEnvSecurity();
 
 const port=ENV().PORT||3000;
 const server=app.listen(port,"0.0.0.0",()=>{
@@ -32,7 +36,7 @@ const shutdown=async(signal)=>{
     process.exit(1)
     }
     setTimeout(()=>{
-        logger.info("Forcefully shutting down server due to timeout");
+        logger.error("Graceful shutdown timed out — forcing exit");
         process.exit(1)
     },10000)
 }

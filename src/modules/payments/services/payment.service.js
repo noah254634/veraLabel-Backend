@@ -243,7 +243,7 @@ export const PaymentService = {
       // 4. Create Paystack Transfer Recipient
       const recipient = await PaymentProvider.createTransferRecipient(user.name, formattedPhone);
       
-      const reference = `WD_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const reference = `WD_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
       // 5. Initiate Transfer
       const transferResponse = await PaymentProvider.initiateTransfer(

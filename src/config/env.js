@@ -26,7 +26,15 @@ export const isPagesDevOrigin = (origin) => {
 
     try {
         const url = new URL(origin);
-        return url.protocol === "https:" && url.hostname.endsWith(".pages.dev");
+        // Only allow the specific veralabel-frontend project — NOT all *.pages.dev
+        // Any Cloudflare Pages deployment by anyone else would otherwise be a valid CORS origin.
+        return (
+            url.protocol === "https:" &&
+            (
+                url.hostname === "veralabel-frontend.pages.dev" ||
+                url.hostname.endsWith(".veralabel-frontend.pages.dev")
+            )
+        );
     } catch {
         return false;
     }
@@ -94,6 +102,7 @@ const buildEnv = (processEnv = process.env, options = {}) => {
 
         firebase_service_account_key: processEnv.FIREBASE_SERVICE_ACCOUNT_KEY,
         firebase_vapid_key: processEnv.FIREBASE_VAPID_KEY,
+        frontend_url: processEnv.FRONTEND_URL || "http://localhost:5173",
     };
 };
 

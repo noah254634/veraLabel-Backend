@@ -5,15 +5,18 @@ import UserVera from "../users/user.model.js";
 import ResetPassword from "../auth/resetPassword.model.js";
 import { generateResetToken } from "./tokens.js";
 import crypto from "crypto";
+import { ENV } from "../../config/env.js";
 
 const mailService = {
     verifyEmailAccount: async (email, token) => {
        if(!email || !token) throw new Error("Email and token are required");
        const user = await UserVera.findOne({ email });
        if (!user) throw new Error("User not found");
+       // Hash incoming token to compare against stored hash
+       const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
        const resetTokenDoc = await ResetPassword.findOne({
          email,
-         token,
+         token: hashedToken,
          expiresAt: { $gt: Date.now() },
        });
        if (!resetTokenDoc) throw new Error("Invalid or expired token");
@@ -37,8 +40,8 @@ const mailService = {
   },
   sendResetPasswordEmail: async (user) => {
     const usertoken = await generateResetToken(user);
-    logger.info(`The token is: ${usertoken}`);
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    // NOTE: never log the raw token — it is a credential.
+    const frontendUrl = ENV().frontend_url;
     const resetLink = `${frontendUrl}/forgot-password`;
     const html = templates.resetPasswordTemplate(user.name || user.username || "there", usertoken, resetLink);
     await sendEmail({
@@ -69,15 +72,17 @@ const mailService = {
     const user = await UserVera.findOne({ email });
     if (!user) throw new Error("User not found");
 
-    // 1. Generate 6-digit verification code
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    // 1. Generate cryptographically secure 6-digit verification code
+    const verificationCode = crypto.randomInt(100000, 1000000).toString();
 
     // 2. Store in ResetPassword collection
+    // Hash before storing — never keep plaintext OTPs in the database
+    const hashedCode = crypto.createHash('sha256').update(verificationCode).digest('hex');
     await ResetPassword.findOneAndUpdate(
       { email: user.email },
       {
         userId: user._id,
-        token: verificationCode,
+        token: hashedCode,
         email: user.email,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
       },
@@ -100,15 +105,16 @@ const mailService = {
   sendWithdrawalOTPEmail: async (user, amount) => {
     logger.info(`Sending withdrawal OTP email to ${user.email} for amount ${amount}`);
     
-    // 1. Generate 6-digit OTP
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    // 1. Generate cryptographically secure 6-digit OTP
+    const otpCode = crypto.randomInt(100000, 1000000).toString();
 
-    // 2. Store in ResetPassword collection (used as generic OTP store)
+    // 2. Hash before storing — the plaintext is sent to the user via email only
+    const hashedOtp = crypto.createHash('sha256').update(otpCode).digest('hex');
     await ResetPassword.findOneAndUpdate(
       { email: user.email },
       {
         userId: user._id,
-        token: otpCode, // Plain text token for OTP, or could be hashed, but for simple 6-digit let's store plain for easy verification
+        token: hashedOtp,
         email: user.email,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes expiry
       },
