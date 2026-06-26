@@ -35,6 +35,7 @@ jobs:
           name: node-app
           path: |
             .
+            !node_modules
             !.git
 
   deploy:
