@@ -554,7 +554,7 @@ export const adminService = {
     };
 
     // 4. Call FastAPI microservice
-    const fastApiUrl = `${process.env.CLOUDFLARE_WORKER_URL}/assemble`;
+    const fastApiUrl = `${process.env.SPLITTER_SERVICE_URL}/api/v1/datasets/assemble`;
     const internalSecret = process.env.INTERNAL_SECRET;
 
     logger.info(`Triggering FastAPI compiler for dataset ${datasetId} at ${fastApiUrl}`);
@@ -666,7 +666,7 @@ export const adminService = {
       tasks: taskItems
     };
 
-    const fastApiUrl = `${process.env.CLOUDFLARE_WORKER_URL}/consensus/evaluate`;
+    const fastApiUrl = `${process.env.SPLITTER_SERVICE_URL}/api/v1/datasets/consensus/evaluate`;
     const internalSecret = process.env.INTERNAL_SECRET;
 
     logger.info(`Triggering FastAPI consensus evaluator for dataset ${datasetId} at ${fastApiUrl}`);

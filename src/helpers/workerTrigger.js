@@ -5,11 +5,11 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { r2 } from '../config/r2Upload.js';
 
 export async function triggerWorker(r2Key, projectId, datasetId, dataType) {
-  const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+  const workerUrl = `${process.env.SPLITTER_SERVICE_URL}/api/v1/datasets`;
   const internalSecret = process.env.INTERNAL_SECRET;
 
-  if (!workerUrl) {
-    throw new Error('CLOUDFLARE_WORKER_URL not configured');
+  if (!process.env.SPLITTER_SERVICE_URL) {
+    throw new Error('SPLITTER_SERVICE_URL not configured');
   }
 
   if (!internalSecret) {
