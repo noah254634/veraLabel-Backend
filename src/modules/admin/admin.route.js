@@ -2,6 +2,7 @@ import express from "express";
 import analyticsController from "../analytics/analytics.controller.js";
 import authorize from "../../middlewares/authorization.middleware.js";
 import { adminController } from "./admin.controller.js";
+import { taskGenerationController } from "../tasks/task.generation.controller.js";
 import settingsRouter from "./routes/settings.route.js";
 const router=express.Router();
 
@@ -56,6 +57,13 @@ router.get("/geo-analytics", adminController.getGeoAnalytics);
 // ML Engine Integration
 router.get("/ml/sam2/telemetry", adminController.getSAM2Telemetry);
 router.post("/ml/sam2/settings", adminController.updateSAM2Settings);
+
+// Agentic Task Generation & Management
+router.post("/tasks/generate", taskGenerationController.generateTasks);
+router.get("/tasks/runs", taskGenerationController.getRuns);
+router.get("/tasks/runs/:runId/tasks", taskGenerationController.getTasksForRun);
+router.put("/tasks/tasks/:taskId", taskGenerationController.updateTaskText);
+router.post("/tasks/runs/:runId/approve", taskGenerationController.approveRunAndBatch);
 
 router.use("/settings", settingsRouter);
 

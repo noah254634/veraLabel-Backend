@@ -211,6 +211,15 @@ export const taskController = {
     return ResponseHandler.success(res, batch, "Batch claimed");
   }),
 
+  claimCategoryBatch: asyncHandler(async (req, res) => {
+    const { category } = req.body;
+    const labellerId = req.labeller?._id;
+    if (!category) throw new AppError("category is required", 400);
+    if (!labellerId) throw new AppError("Labeller profile is required", 403);
+    const batch = await taskService.claimCategoryBatch(category, labellerId);
+    return ResponseHandler.success(res, batch, "Rolling batch claimed successfully");
+  }),
+
   getMyActiveBatch: asyncHandler(async (req, res) => {
     const labellerId = req.labeller?._id;
     if (!labellerId) throw new AppError("Labeller profile is required", 403);

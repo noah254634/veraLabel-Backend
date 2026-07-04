@@ -58,7 +58,7 @@ const enrichBatchWithDataset = async (batch) => {
   if (!plain?.datasetId) return plain;
 
   const dataset = await Dataset.findById(plain.datasetId)
-    .select("labellingMethod contentType domain pricePerBatch metadata")
+    .select("labellingMethod contentType domain pricePerBatch metadata isCollection")
     .lean();
 
   const labellingMethod = dataset?.labellingMethod || "annotation";
@@ -67,6 +67,7 @@ const enrichBatchWithDataset = async (batch) => {
   plain.labellingMethod = labellingMethod;
   plain.datasetContentType = datasetContentType;
   plain.pricePerBatch = dataset?.pricePerBatch || 0;
+  plain.isCollection = dataset?.isCollection === true;
 
   if (Array.isArray(plain.tasks)) {
     plain.tasks = await Promise.all(
@@ -78,7 +79,7 @@ const enrichBatchWithDataset = async (batch) => {
           labellingMethod,
           categories: task.categories || dataset?.metadata?.labels || [],
         };
-        return await enrichTaskMedia(mappedTask, datasetContentType);
+        return await enrichTaskMedia(mappedTask, datasetContentType, dataset?.isCollection === true);
       })
     );
   }
@@ -165,8 +166,23 @@ const getEmbeddingR2Key = (imageR2Key) => {
   return `${imageR2Key}.npy`;
 };
 
-const enrichTaskMedia = async (task, datasetContentType) => {
+const enrichTaskMedia = async (task, datasetContentType, isCollection = false) => {
   const contentType = (task.contentType || datasetContentType || 'text').toLowerCase();
+
+  if (isCollection) {
+    try {
+      const taskR2Url = task.r2_input_taskRef;
+      if (taskR2Url) {
+        const taskBuffer = await r2ContentFetcher.fetchTaskContent(taskR2Url);
+        const parsed = JSON.parse(taskBuffer.toString('utf-8'));
+        task.taskObject = parsed;
+        task.instructionText = parsed.instructionText || parsed.instruction || parsed.prompt || null;
+      }
+    } catch (e) {
+      logger.warn('Failed to parse collection task content during enrichment', { taskId: task._id || task.id, error: e.message });
+    }
+    return task;
+  }
 
   if (!['image', 'audio', 'video'].includes(contentType)) {
     return task;
@@ -299,7 +315,19 @@ const validateAnnotationPayload = (annotation) => {
 
   const ct = String(annotation.contentType || "").toLowerCase();
 
-  // ── Audio tasks: expect transcription text or classification label ──
+  // ── Audio collection tasks: submitted as a Base64 JSON bundle ──
+  // These payloads have audioBase64 + transcription, not contentType.
+  if (annotation.audioBase64) {
+    const hasTranscription = typeof annotation.transcription === "string" && annotation.transcription.trim().length >= 10;
+    if (!hasTranscription) {
+      throw new Error(
+        "Invalid collection payload: 'transcription' is required and must be at least 10 characters."
+      );
+    }
+    return; // Valid collection submission
+  }
+
+  // ── Standard audio tasks: expect transcription text or classification label ──
   if (ct === "audio") {
     const hasTranscription = typeof annotation.transcription === "string" && annotation.transcription.trim().length >= 10;
     const hasClassification = typeof annotation.classificationLabel === "string" && annotation.classificationLabel.trim().length > 0;
@@ -1006,11 +1034,12 @@ export const taskService = {
         throw new Error(`Task with ID ${id} not found`);
       }
       const taskR2Url = task.r2_input_taskRef;
-      const dataset = await Dataset.findById(task.datasetId).select("contentType domain").lean();
+      const dataset = await Dataset.findById(task.datasetId).select("contentType domain isCollection").lean();
+      const isCollection = dataset?.isCollection === true;
       const contentType = (task.contentType || normalizeContentType(task, dataset) || 'text').toLowerCase();
       let taskObject;
 
-      if (['image', 'audio', 'video'].includes(contentType)) {
+      if (!isCollection && ['image', 'audio', 'video'].includes(contentType)) {
         try {
           // Verify that the object actually exists in R2 first
           await r2ContentFetcher.getContentMetadata(taskR2Url);
@@ -1364,12 +1393,18 @@ export const taskService = {
       const task = await Task.findById(taskId);
       if (!task) throw new Error("Task not found");
 
-      const r2_output_key = `${task.r2_datasetUrl}/results/${labellerId}/${task.taskId}.json`;
+      // Check if dataset is a crowdsourced collection
+      const dataset = await Dataset.findById(task.datasetId).select("isCollection").lean();
+      const isCollection = dataset?.isCollection === true;
+
+      const fileExtension = "json";
+      const contentType = "application/json";
+      const r2_output_key = `${task.r2_datasetUrl}/results/${labellerId}/${task.taskId}.${fileExtension}`;
 
       const command = new PutObjectCommand({
         Bucket: process.env.R2_BUCKET_NAME,
         Key: r2_output_key,
-        ContentType: "application/json",
+        ContentType: contentType,
       });
 
       const uploadUrl = await getSignedUrl(r2, command, {
@@ -1565,7 +1600,7 @@ export const taskService = {
       const unbatchedTasks = await Task.find({
         datasetId,
         batchId: null
-      }).select("_id taskType contentType").lean();
+      }).select("_id taskType contentType category").lean();
 
       if (unbatchedTasks.length === 0) {
         logger.info('No unbatched tasks found for dataset', { datasetId });
@@ -1591,6 +1626,7 @@ export const taskService = {
           batchId: `B-${datasetId.toString().slice(-4)}-${Math.floor(i / batchSize)}-${Date.now().toString().slice(-4)}`,
           datasetId,
           tasks: taskIds,
+          category: batchTasks[0].category || null,
           totalTasks: taskIds.length,
           completedTasks: 0,
           batchType: type,
@@ -1673,6 +1709,72 @@ export const taskService = {
       return enrichBatchWithDataset(batch);
     } catch (error) {
       logger.error('Error claiming batch', { error: error.message, datasetId, labellerIdentifier });
+      throw error;
+    }
+  },
+
+  claimCategoryBatch: async (category, labellerIdentifier) => {
+    try {
+      if (!category) throw new Error("Category is required for rolling claim");
+      const labeller = await resolveLabellerDocument(labellerIdentifier);
+      if (!labeller) throw new Error("Labeller profile not found");
+
+      // 1. Check if they already have an active batch in progress
+      const existingBatch = await checkExistingBatchAssignment(labeller._id);
+      if (existingBatch) {
+        logger.info('Labeller already has active batch assignment, returning existing batch', {
+          labellerId: labeller._id,
+          batchId: existingBatch._id
+        });
+        await existingBatch.populate("tasks");
+        return enrichBatchWithDataset(existingBatch);
+      }
+
+      // 2. Find an available batch in this category where the labeller is not already assigned
+      const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000); // 4 hour TTL
+      const batch = await Batch.findOneAndUpdate(
+        {
+          category: category.toLowerCase().trim(),
+          status: { $in: ['available', 'in_progress'] },
+          assignedTo: { $ne: labeller._id },
+          $expr: {
+            $lt: [
+              { $size: { $ifNull: ["$assignedTo", []] } },
+              { $ifNull: ["$maxLabellers", 1] }
+            ]
+          }
+        },
+        {
+          $set: {
+            status: 'in_progress',
+            assignedAt: new Date(),
+            expiresAt
+          },
+          $addToSet: { assignedTo: labeller._id },
+          $push: {
+            labellerAssignments: {
+              labellerId: labeller._id,
+              assignedAt: new Date(),
+              expiresAt
+            }
+          }
+        },
+        {
+          sort: { priority: -1, createdAt: 1 },
+          new: true
+        }
+      ).populate('tasks');
+
+      if (!batch) {
+        throw new Error(`No available batches in category: ${category}`);
+      }
+
+      // 3. Assign tasks to the labeller and update their profile metrics
+      await assignBatchTasksToLabeller(batch, labeller._id);
+      await batch.populate("tasks");
+      return enrichBatchWithDataset(batch);
+    } catch (error) {
+      logger.error('Error claiming category batch', { error: error.message, category, labellerIdentifier });
       throw error;
     }
   },

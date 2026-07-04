@@ -5,6 +5,7 @@ const batchSchema = new mongoose.Schema(
     batchId: { type: String, unique: true },
     datasetId: { type: mongoose.Schema.Types.ObjectId, ref: 'Dataset', required: true },
     tasks: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Task' }], // Array of Task references
+    category: { type: String, index: true, default: null }, // category classification e.g. fintech, agriculture
     
     // Progress Tracking
     totalTasks: { type: Number, default: 0 },

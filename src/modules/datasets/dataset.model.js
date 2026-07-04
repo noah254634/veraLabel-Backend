@@ -143,6 +143,10 @@ const datasetSchema = new mongoose.Schema(
       ref: "Buyer",
       required: false,
     },
+    isCollection: {
+      type: Boolean,
+      default: false,
+    },
     domain: {
       type: String,
       required: false,

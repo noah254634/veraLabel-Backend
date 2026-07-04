@@ -46,6 +46,7 @@ router.post('/auto_assign', protectRoute, authorize('admin', 'superadmin'), task
 
 // Labeller current workload
 router.post('/claim-batch', protectRoute, attachLabeller, tasksWriteLimiter, taskController.claimBatch)
+router.post('/claim-category-batch', protectRoute, attachLabeller, tasksWriteLimiter, taskController.claimCategoryBatch)
 router.get('/my-active-batch', protectRoute, attachLabeller, taskController.getMyActiveBatch)
 router.get('/batches', protectRoute, taskController.getBatches)
 

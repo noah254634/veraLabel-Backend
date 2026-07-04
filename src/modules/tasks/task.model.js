@@ -114,6 +114,8 @@ const taskSchema = new Schema({
   status: {
     type: String,
     enum: [
+      "pending_review",
+      "approved",
       "pending",
       "in_progress",
       "submitted",
@@ -123,6 +125,27 @@ const taskSchema = new Schema({
     ],
     default: "pending"
   },
+
+  runId: {
+    type: String,
+    default: null,
+    index: true
+  },
+
+  category: {
+    type: String,
+    default: null,
+    index: true
+  },
+
+  instructionText: {
+    type: String,
+    default: null
+  },
+
+  expectedLanguage: { type: String, default: "Swahili" },
+  codeSwitchExpected: { type: Boolean, default: false },
+  targetTone: { type: String, default: "Neutral" },
 
   // Labeller flag fields
   flagReason: { type: String, default: null },
