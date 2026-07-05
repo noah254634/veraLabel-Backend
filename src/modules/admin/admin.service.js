@@ -21,6 +21,33 @@ const enrichDatasetWithTaskCounts = async (datasetDoc) => {
   return { ...dataset, ...counts };
 };
 
+const GEO_TIME_SLICES = {
+  "30m": { fromMs: 0, toMs: 30 * 60 * 1000, label: "last 30 minutes" },
+  "1h": { fromMs: 30 * 60 * 1000, toMs: 60 * 60 * 1000, label: "30 minutes to 1 hour ago" },
+  "2h": { fromMs: 60 * 60 * 1000, toMs: 2 * 60 * 60 * 1000, label: "1 hour to 2 hours ago" },
+  "3h": { fromMs: 2 * 60 * 60 * 1000, toMs: 3 * 60 * 60 * 1000, label: "2 hours to 3 hours ago" },
+  "6h": { fromMs: 3 * 60 * 60 * 1000, toMs: 6 * 60 * 60 * 1000, label: "3 hours to 6 hours ago" },
+  "12h": { fromMs: 6 * 60 * 60 * 1000, toMs: 12 * 60 * 60 * 1000, label: "6 hours to 12 hours ago" },
+  "24h": { fromMs: 12 * 60 * 60 * 1000, toMs: 24 * 60 * 60 * 1000, label: "12 hours to 24 hours ago" },
+  "7d": { fromMs: 0, toMs: 7 * 24 * 60 * 60 * 1000, label: "last 7 days" },
+};
+
+const resolveGeoTimeSlice = (timeRange) => {
+  const normalized = String(timeRange || "7d").trim().toLowerCase();
+  return GEO_TIME_SLICES[normalized] || GEO_TIME_SLICES["7d"];
+};
+
+const buildGeoTimeMatch = (timeRange, fieldName) => {
+  const slice = resolveGeoTimeSlice(timeRange);
+  const now = Date.now();
+  return {
+    [fieldName]: {
+      $gte: new Date(now - slice.toMs),
+      $lt: new Date(now - slice.fromMs),
+    },
+  };
+};
+
 export const adminService = {
   promoteToReviewerById: async (id) => {
     if (!id) throw new Error("Id  required to do this action");
@@ -424,21 +451,24 @@ export const adminService = {
     return buyer;
   },
 
-  getGeoAccessLogs: async () => {
-    return await GeoAccessLog.find().sort({ lastAccess: -1 });
+  getGeoAccessLogs: async (timeRange) => {
+    return await GeoAccessLog.find(buildGeoTimeMatch(timeRange, "lastAccess")).sort({ lastAccess: -1 });
   },
 
-  getGeoRequestAudits: async () => {
-    return await GeoRequestAudit.find()
+  getGeoRequestAudits: async (timeRange) => {
+    return await GeoRequestAudit.find(buildGeoTimeMatch(timeRange, "timestamp"))
       .populate('userId', 'name email role')
       .sort({ timestamp: -1 })
       .limit(200);
   },
 
-  getGeoAnalytics: async () => {
-    const totalUniqueVisitors = await GeoAccessLog.countDocuments();
+  getGeoAnalytics: async (timeRange) => {
+    const match = buildGeoTimeMatch(timeRange, "lastAccess");
+
+    const totalUniqueVisitors = await GeoAccessLog.countDocuments(match);
     
     const countryBreakdown = await GeoAccessLog.aggregate([
+      { $match: match },
       {
         $group: {
           _id: "$country",
@@ -450,6 +480,7 @@ export const adminService = {
     ]);
 
     const blockStatusBreakdown = await GeoAccessLog.aggregate([
+      { $match: match },
       {
         $group: {
           _id: "$isBlocked",

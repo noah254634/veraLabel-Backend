@@ -204,17 +204,20 @@ export const adminController = {
   }),
 
   getGeoAccessLogs: asyncHandler(async (req, res) => {
-    const logs = await adminService.getGeoAccessLogs();
+    const { timeRange } = req.query;
+    const logs = await adminService.getGeoAccessLogs(timeRange);
     return ResponseHandler.success(res, { logs }, "Geo access logs fetched successfully");
   }),
 
   getGeoRequestAudits: asyncHandler(async (req, res) => {
-    const audits = await adminService.getGeoRequestAudits();
+    const { timeRange } = req.query;
+    const audits = await adminService.getGeoRequestAudits(timeRange);
     return ResponseHandler.success(res, { audits }, "Geo request audits fetched successfully");
   }),
 
   getGeoAnalytics: asyncHandler(async (req, res) => {
-    const analytics = await adminService.getGeoAnalytics();
+    const { timeRange } = req.query;
+    const analytics = await adminService.getGeoAnalytics(timeRange);
     return ResponseHandler.success(res, { analytics }, "Geo access analytics fetched successfully");
   }),
 
