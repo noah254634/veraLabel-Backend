@@ -141,5 +141,38 @@ export const reviewerController = {
       
       logger.info(`Payout requested by reviewer ${reviewerId} of amount ${amount}`);
       return ResponseHandler.success(res, response, "Payout requested successfully");
+  }),
+
+  claimBatch: asyncHandler(async (req, res) => {
+      const { batchId } = req.params;
+      const reviewerId = await getReviewerProfileId(req.user._id);
+
+      if (!batchId) throw new AppError('Batch ID is required', 400);
+
+      const response = await reviewerService.claimBatch(batchId, reviewerId);
+      logger.info(`Batch ${batchId} claimed by reviewer ${reviewerId}`);
+      return ResponseHandler.success(res, response, "Batch successfully claimed for review");
+  }),
+
+  releaseBatchReviewLock: asyncHandler(async (req, res) => {
+      const { batchId } = req.params;
+      const reviewerId = await getReviewerProfileId(req.user._id);
+
+      if (!batchId) throw new AppError('Batch ID is required', 400);
+
+      const response = await reviewerService.releaseBatchReviewLock(batchId, reviewerId);
+      logger.info(`Batch review lock released for batch ${batchId} by reviewer ${reviewerId}`);
+      return ResponseHandler.success(res, response, "Batch review lock released");
+  }),
+
+  submitBatchAudit: asyncHandler(async (req, res) => {
+      const { batchId } = req.params;
+      const reviewerId = await getReviewerProfileId(req.user._id);
+
+      if (!batchId) throw new AppError('Batch ID is required', 400);
+
+      const response = await reviewerService.submitBatchAudit(batchId, reviewerId);
+      logger.info(`Batch ${batchId} audit finalized by reviewer ${reviewerId}`);
+      return ResponseHandler.success(res, response, "Batch audit successfully submitted");
   })
 };

@@ -10,6 +10,7 @@ import { ENV } from "../../../config/env.js";
 import crypto from "crypto";
 import UserVera from "../../users/user.model.js";
 import Labeller from "../../labeller/labeller.model.js";
+import Reviewer from "../../reviewer/reviewer.model.js";
 import Payout from "../models/payout.model.js";
 
 export const PaymentService = {
@@ -199,8 +200,9 @@ export const PaymentService = {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
-      // 1. Fetch user to check balance
+      // 1. Fetch user/labeller/reviewer to check balance
       const labellerDoc = await Labeller.findOne({ userId: user._id }).session(session);
+      const reviewerDoc = await Reviewer.findOne({ reviewerUserId: user._id }).session(session);
       
       if (labellerDoc) {
         if ((labellerDoc.earnings?.currentBalance || 0) < amount) {
@@ -210,6 +212,13 @@ export const PaymentService = {
         labellerDoc.earnings.totalPayouts = (labellerDoc.earnings.totalPayouts || 0) + 1;
         labellerDoc.earnings.lastPayoutDate = new Date();
         await labellerDoc.save({ session });
+      } else if (reviewerDoc) {
+        if ((reviewerDoc.earnings?.pending || 0) < amount) {
+          throw new Error("Insufficient balance");
+        }
+        reviewerDoc.earnings.pending = Number((reviewerDoc.earnings.pending - amount).toFixed(2));
+        reviewerDoc.earnings.paid = Number(((reviewerDoc.earnings.paid || 0) + amount).toFixed(2));
+        await reviewerDoc.save({ session });
       } else {
         const userDoc = await UserVera.findById(user._id).session(session);
         if (!userDoc) throw new Error("User not found");

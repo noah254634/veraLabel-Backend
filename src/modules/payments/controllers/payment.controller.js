@@ -9,6 +9,7 @@ import ResponseHandler from "../../../helpers/responseHandler.js";
 import Payout from "../models/payout.model.js";
 import UserVera from "../../users/user.model.js";
 import Labeller from "../../labeller/labeller.model.js";
+import Reviewer from "../../reviewer/reviewer.model.js";
 import mailService from "../../mailer/mailService.js";
 import ResetPassword from "../../auth/resetPassword.model.js";
 
@@ -34,7 +35,7 @@ export const PaymentController = {
       const dataset = await Dataset.findOne({ _id: datasetId });
       if (!dataset) throw new AppError("Dataset not found", 404);
 
-      const redirectUrl = `${ENV().frontend_url || 'http://localhost:5173'}/payment/verify`;
+      const redirectUrl = `${ENV().frontend_url || 'http://localhost:5173'}/payments/success`;
       const datasetPrice = isExclusive ? dataset.exclusivePrice : dataset.price;
       if (!datasetPrice) throw new AppError("Dataset has no price for this purchase type", 400);
 
@@ -60,7 +61,7 @@ export const PaymentController = {
       const parsedAmount = parseFloat(amount.toString().replace(/[^0-9.-]+/g, ""));
       if (isNaN(parsedAmount)) throw new AppError("Invalid amount format", 400);
 
-      const redirectUrl = `${ENV().frontend_url || 'http://localhost:5173'}/payment/verify`;
+      const redirectUrl = `${ENV().frontend_url || 'http://localhost:5173'}/payments/success`;
       const order = await buyerService.createOrder(req.buyer._id, requestId, reference, parsedAmount);
       const result = await PaymentService.createPayment({
         order: order._id, user: req.user, amount: parsedAmount,
@@ -128,9 +129,14 @@ export const PaymentController = {
             
             // Refund the user since the transfer failed
             const labeller = await Labeller.findOne({ userId: payout.recipientUserId });
+            const reviewer = await Reviewer.findOne({ reviewerUserId: payout.recipientUserId });
             if (labeller) {
               labeller.earnings.currentBalance += payout.amount;
               await labeller.save();
+            } else if (reviewer) {
+              reviewer.earnings.pending = Number((reviewer.earnings.pending + payout.amount).toFixed(2));
+              reviewer.earnings.paid = Number((reviewer.earnings.paid - payout.amount).toFixed(2));
+              await reviewer.save();
             } else {
               const user = await UserVera.findById(payout.recipientUserId);
               if (user) {

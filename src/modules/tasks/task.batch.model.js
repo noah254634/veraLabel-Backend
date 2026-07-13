@@ -13,7 +13,7 @@ const batchSchema = new mongoose.Schema(
     
     status: {
       type: String,
-      enum: ['available', 'in_progress', 'completed', 'flagged', 'expired'],
+      enum: ['available', 'in_progress', 'completed', 'under_review', 'reviewed', 'flagged', 'expired'],
       default: 'available'
     },
     
@@ -29,6 +29,11 @@ const batchSchema = new mongoose.Schema(
       }
     ],
     completedAt: { type: Date },
+
+    // Review assignment info
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Reviewer', default: null },
+    reviewLockedAt: { type: Date, default: null },
+    reviewExpiresAt: { type: Date, default: null },
     
     batchType: { type: String }, // primary content modality for the batch
     labellingMethod: {

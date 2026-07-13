@@ -17,7 +17,7 @@ router.post('/paystack/webhook', PaymentController.handleWebhook)
 // --- Authenticated Routes ---
 router.use(protectRoute)
 router.use(checkisBlocked)
-router.use(authorize('admin', 'buyer', 'labeler'))
+router.use(authorize('admin', 'buyer', 'labeler', 'reviewer'))
 
 /**
  * @route   GET /api/v1/payments/success/:reference

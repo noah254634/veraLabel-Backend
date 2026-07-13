@@ -18,6 +18,10 @@ router.get('/task/:taskId', reviewerController.getTaskForReview);
 router.put('/approve/:taskId', reviewerController.approveSubmission);
 router.put('/reject/:taskId', reviewerController.rejectSubmission);
 
+router.post('/claim-batch/:batchId', reviewerController.claimBatch);
+router.post('/release-batch/:batchId', reviewerController.releaseBatchReviewLock);
+router.post('/submit-batch/:batchId', reviewerController.submitBatchAudit);
+
 router.get('/analytics/overview', reviewerAnalyticsController.getOverview);
 
 // 2. LABELLER PERFORMANCE (who needs improvement)

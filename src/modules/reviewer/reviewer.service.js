@@ -75,8 +75,22 @@ export const reviewerService = {
     try {
       const submission = await Submission.findById(submissionId);
       if (!submission) throw new Error('Submission not found');
-      if (submission.status !== 'submitted') {
-        const error = new Error('Submission must be in submitted status to rate');
+
+      // Enforce batch-level review lock check
+      if (submission.batchId) {
+        const batch = await Batch.findById(submission.batchId);
+        if (!batch) throw new Error('Parent batch not found');
+        const now = new Date();
+        const isLockedBySelf = batch.status === 'under_review' && 
+                               batch.reviewedBy?.toString() === reviewerId.toString() && 
+                               batch.reviewExpiresAt > now;
+        if (!isLockedBySelf) {
+          throw new Error('You do not hold the review lock on this batch or your lock has expired.');
+        }
+      }
+
+      if (submission.status !== 'submitted' && submission.status !== 'under_review') {
+        const error = new Error('Submission must be in submitted or under_review status to rate');
         error.status = 400;
         throw error;
       }
@@ -234,54 +248,42 @@ export const reviewerService = {
   getPendingReviewTasks: async (reviewerId, page = 1, limit = 20) => {
     try {
       const skip = (page - 1) * limit;
-      
-      const submissions = await Submission.find({ 
-        status: 'submitted'
-      })
-        .populate({
-          path: 'taskId',
-          populate: { path: 'datasetId', select: 'name labellingMethod contentType' }
-        })
-        .populate({
-          path: 'submittedBy',
-          populate: { path: 'userId', select: 'name email' }
-        })
+      const now = new Date();
+
+      // Find batches that are either 'completed' or 'under_review' with expired lock
+      const filter = {
+        status: { $in: ['completed', 'under_review'] },
+        $or: [
+          { status: 'completed' },
+          { status: 'under_review', reviewExpiresAt: { $lt: now } }
+        ]
+      };
+
+      const batches = await Batch.find(filter)
+        .populate('datasetId', 'name description')
         .skip(skip)
         .limit(limit)
-        .sort({ createdAt: -1 });
+        .sort({ priority: -1, createdAt: 1 });
 
-      const total = await Submission.countDocuments({ 
-        status: 'submitted'
-      });
+      const total = await Batch.countDocuments(filter);
 
-      const formattedTasks = submissions.map((sub) => {
-        const task = sub.taskId;
-        const labeller = sub.submittedBy;
-        const contentType = task?.contentType || task?.taskType || 'text';
-        return {
-          _id: sub._id,
-          taskId: task?.taskId || 'N/A',
-          taskType: contentType,
-          contentType,
-          labellingMethod: task?.datasetId?.labellingMethod || 'annotation',
-          status: sub.status,
-          priority: task?.priority || 0,
-          datasetId: task?.datasetId || sub.datasetId,
-          assignedTo: labeller ? [
-            {
-              _id: labeller._id,
-              userId: {
-                name: labeller.userId?.name,
-                email: labeller.userId?.email
-              }
-            }
-          ] : []
-        };
-      });
+      const formattedBatches = batches.map(batch => ({
+        _id: batch._id,
+        batchId: batch.batchId,
+        taskType: batch.batchType || 'text',
+        contentType: batch.batchType || 'text',
+        labellingMethod: batch.labellingMethod || 'annotation',
+        status: batch.status,
+        priority: batch.priority || 0,
+        datasetId: batch.datasetId,
+        totalTasks: batch.totalTasks,
+        completedTasks: batch.completedTasks,
+        submissionsCount: batch.totalTasks * (batch.maxLabellers || 1)
+      }));
 
-      return { tasks: formattedTasks, total, page, pages: Math.ceil(total / limit) };
+      return { tasks: formattedBatches, total, page, pages: Math.ceil(total / limit) };
     } catch (err) {
-      logger.error(`Service error fetching pending submissions: ${err.message}`);
+      logger.error(`Service error fetching pending batches for review: ${err.message}`);
       throw err;
     }
   },
@@ -353,8 +355,8 @@ export const reviewerService = {
         { $group: { _id: null, avgScore: { $avg: '$verificationScore' } } }
       ]);
 
-      const pendingCount = await Submission.countDocuments({ 
-        status: 'submitted'
+      const pendingCount = await Batch.countDocuments({ 
+        status: 'completed'
       });
 
       const approvedCount = await Submission.countDocuments({ 
@@ -398,7 +400,23 @@ export const reviewerService = {
         });
 
       if (!submission) throw new Error('Submission not found');
-      if (submission.status !== 'submitted') {
+
+      // Enforce lock check on the parent Batch!
+      if (submission.batchId) {
+        const batch = await Batch.findById(submission.batchId);
+        if (!batch) throw new Error('Parent batch not found');
+        
+        const now = new Date();
+        const isLockedBySelf = batch.status === 'under_review' && 
+                               batch.reviewedBy?.toString() === reviewerId.toString() && 
+                               batch.reviewExpiresAt > now;
+                               
+        if (!isLockedBySelf) {
+          throw new Error('This task belongs to a batch that is not currently locked by you.');
+        }
+      }
+
+      if (submission.status !== 'submitted' && submission.status !== 'under_review') {
         const error = new Error('Submission is not available for review');
         error.status = 400;
         throw error;
@@ -558,6 +576,19 @@ export const reviewerService = {
       const submission = await Submission.findById(submissionId);
       if (!submission) throw new Error('Submission not found');
 
+      // Enforce batch-level review lock check
+      if (submission.batchId) {
+        const batch = await Batch.findById(submission.batchId);
+        if (!batch) throw new Error('Parent batch not found');
+        const now = new Date();
+        const isLockedBySelf = batch.status === 'under_review' && 
+                               batch.reviewedBy?.toString() === reviewerId.toString() && 
+                               batch.reviewExpiresAt > now;
+        if (!isLockedBySelf) {
+          throw new Error('You do not hold the review lock on this batch or your lock has expired.');
+        }
+      }
+
       submission.status = 'approved';
       submission.verificationScore = 5;
       submission.humanReview = {
@@ -618,6 +649,19 @@ export const reviewerService = {
     try {
       const submission = await Submission.findById(submissionId);
       if (!submission) throw new Error('Submission not found');
+
+      // Enforce batch-level review lock check
+      if (submission.batchId) {
+        const batch = await Batch.findById(submission.batchId);
+        if (!batch) throw new Error('Parent batch not found');
+        const now = new Date();
+        const isLockedBySelf = batch.status === 'under_review' && 
+                               batch.reviewedBy?.toString() === reviewerId.toString() && 
+                               batch.reviewExpiresAt > now;
+        if (!isLockedBySelf) {
+          throw new Error('You do not hold the review lock on this batch or your lock has expired.');
+        }
+      }
 
       submission.status = 'rejected';
       submission.verificationScore = 1;
@@ -706,6 +750,119 @@ export const reviewerService = {
       };
     } catch (err) {
       logger.error(`Service error requesting reviewer payout: ${err.message}`);
+      throw err;
+    }
+  },
+
+  claimBatch: async (batchId, reviewerId) => {
+    try {
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 30 * 60 * 1000); // 30-minute lock
+
+      const batch = await Batch.findOneAndUpdate(
+        {
+          _id: batchId,
+          status: { $in: ['completed', 'under_review'] },
+          $or: [
+            { status: 'completed' },
+            { status: 'under_review', reviewExpiresAt: { $lt: now } }
+          ]
+        },
+        {
+          $set: {
+            status: 'under_review',
+            reviewedBy: reviewerId,
+            reviewLockedAt: now,
+            reviewExpiresAt: expiresAt
+          }
+        },
+        { new: true }
+      );
+
+      if (!batch) {
+        throw new Error('This batch has already been claimed or completed by another reviewer.');
+      }
+
+      const populatedBatch = await Batch.findById(batch._id).populate({
+        path: 'tasks',
+        populate: {
+          path: 'datasetId',
+          select: 'name labellingMethod contentType'
+        }
+      });
+
+      const submissions = await Submission.find({
+        batchId: batch._id
+      }).populate({
+        path: 'submittedBy',
+        populate: { path: 'userId', select: 'name email' }
+      });
+
+      return { batch: populatedBatch, submissions };
+    } catch (err) {
+      logger.error(`Service error claiming batch: ${err.message}`);
+      throw err;
+    }
+  },
+
+  releaseBatchReviewLock: async (batchId, reviewerId) => {
+    try {
+      const batch = await Batch.findOneAndUpdate(
+        {
+          _id: batchId,
+          status: 'under_review',
+          reviewedBy: reviewerId
+        },
+        {
+          $set: {
+            status: 'completed',
+            reviewedBy: null,
+            reviewLockedAt: null,
+            reviewExpiresAt: null
+          }
+        },
+        { new: true }
+      );
+
+      return { success: !!batch };
+    } catch (err) {
+      logger.error(`Service error releasing batch lock: ${err.message}`);
+      throw err;
+    }
+  },
+
+  submitBatchAudit: async (batchId, reviewerId) => {
+    try {
+      const batch = await Batch.findOne({
+        _id: batchId,
+        status: 'under_review',
+        reviewedBy: reviewerId,
+        reviewExpiresAt: { $gt: new Date() }
+      });
+
+      if (!batch) {
+        throw new Error('Lock not found or has expired. Cannot finalize audit.');
+      }
+
+      // Check if there are any submissions in this batch that haven't been reviewed
+      const pendingCount = await Submission.countDocuments({
+        batchId: batch._id,
+        status: { $in: ['submitted', 'under_review'] }
+      });
+
+      if (pendingCount > 0) {
+        throw new Error(`Cannot submit audit: ${pendingCount} submissions in this batch are still pending review.`);
+      }
+
+      batch.status = 'reviewed';
+      batch.reviewedBy = reviewerId;
+      batch.reviewExpiresAt = null;
+      await batch.save();
+
+      logger.info(`Batch ${batch.batchId} successfully audited by reviewer ${reviewerId}`);
+      return { success: true, status: 'reviewed' };
+    } catch (err) {
+      logger.error(`Service error submitting batch audit: ${err.message}`);
       throw err;
     }
   }
