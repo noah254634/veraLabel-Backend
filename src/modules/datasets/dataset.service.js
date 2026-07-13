@@ -184,7 +184,14 @@ export const datasetService = {
     return await Promise.all(datasets.map(async (d) => {
       const obj = d.toObject ? d.toObject() : d;
       const counts = await calculateDatasetTaskCounts(obj._id);
-      return { ...obj, ...counts };
+      const rows = obj.rows || counts.totalTasksCount || 0;
+      const rowsCompleted = obj.rowsCompleted !== undefined && obj.rowsCompleted !== null && obj.rowsCompleted > 0 ? obj.rowsCompleted : counts.verifiedTasksCount;
+      return { 
+        ...obj, 
+        ...counts,
+        rows,
+        rowsCompleted
+      };
     }));
   },
   getDatasetById: async (id) => {
@@ -192,7 +199,14 @@ export const datasetService = {
     if (!d) return null;
     const obj = d.toObject ? d.toObject() : d;
     const counts = await calculateDatasetTaskCounts(obj._id);
-    return { ...obj, ...counts };
+    const rows = obj.rows || counts.totalTasksCount || 0;
+    const rowsCompleted = obj.rowsCompleted !== undefined && obj.rowsCompleted !== null && obj.rowsCompleted > 0 ? obj.rowsCompleted : counts.verifiedTasksCount;
+    return { 
+      ...obj, 
+      ...counts,
+      rows,
+      rowsCompleted
+    };
   },
   deleteDataset: async (id) => {
     if (!id) throw new Error("id is required");

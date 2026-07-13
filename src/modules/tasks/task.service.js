@@ -1221,7 +1221,7 @@ export const taskService = {
       throw error;
     }
   },
-  submitTask: async (taskId, labellerIdentifier, batchId) => {
+  submitTask: async (taskId, labellerIdentifier, batchId, metadata = {}) => {
     try {
       if (!taskId) throw new Error("Task id is required");
       if (!labellerIdentifier) throw new Error("Labeller id is required");
@@ -1262,46 +1262,57 @@ export const taskService = {
         throw new Error("Task security block: You have already submitted an annotation for this task.");
       }
 
+      // Check if dataset is a crowdsourced collection
+      const dataset = await Dataset.findById(task.datasetId).select("isCollection").lean();
+      const isCollection = dataset?.isCollection === true;
+
       // 3. Create the Submission Record
       const submissionId = `SUB-${taskId.toString().slice(-6)}-${labellerId.toString().slice(-6)}-${Date.now().toString().slice(-6)}`;
-      const r2_output_key = `${task.r2_datasetUrl}/results/${labellerId}/${task.taskId}.json`;
+      const fileExtension = isCollection ? "wav" : "json";
+      const r2_output_key = `${task.r2_datasetUrl}/results/${labellerId}/${task.taskId}.${fileExtension}`;
 
-      // Verify that the annotation result file exists in Cloudflare R2
+      // Verify that the file exists in Cloudflare R2
       try {
         const headCommand = new HeadObjectCommand({
           Bucket: process.env.R2_BUCKET_NAME,
           Key: r2_output_key
         });
         await r2.send(headCommand);
-        logger.info(`Verified annotation file exists in R2`, { r2_output_key });
+        logger.info(`Verified collection/annotation file exists in R2`, { r2_output_key });
       } catch (r2Error) {
-        logger.error(`Verification failed: annotation result file not found in R2`, { error: r2Error.message, r2_output_key });
-        throw new Error("Validation failed: You must upload the annotation payload to cloud storage before final submission.");
+        logger.error(`Verification failed: file not found in R2`, { error: r2Error.message, r2_output_key });
+        throw new Error("Validation failed: You must upload the data to cloud storage before final submission.");
       }
 
-      try {
-        const getCommand = new GetObjectCommand({
-          Bucket: process.env.R2_BUCKET_NAME,
-          Key: r2_output_key,
-        });
-        const object = await r2.send(getCommand);
-        const bodyString = await streamToString(object.Body);
-        let annotation;
+      if (isCollection) {
+        // Validate metadata passed from frontend in request body
+        validateAnnotationPayload({ audioBase64: "dummy_placeholder", ...metadata });
+      } else {
+        // Original standard flow: fetch JSON and validate
         try {
-          annotation = JSON.parse(bodyString);
-        } catch {
-          throw new Error("Invalid annotation payload: uploaded file is not valid JSON.");
+          const getCommand = new GetObjectCommand({
+            Bucket: process.env.R2_BUCKET_NAME,
+            Key: r2_output_key,
+          });
+          const object = await r2.send(getCommand);
+          const bodyString = await streamToString(object.Body);
+          let annotation;
+          try {
+            annotation = JSON.parse(bodyString);
+          } catch {
+            throw new Error("Invalid annotation payload: uploaded file is not valid JSON.");
+          }
+          validateAnnotationPayload(annotation);
+        } catch (validationError) {
+          logger.error("Annotation payload validation failed", {
+            taskId,
+            batchId,
+            labellerId,
+            r2_output_key,
+            error: validationError.message,
+          });
+          throw validationError;
         }
-        validateAnnotationPayload(annotation);
-      } catch (validationError) {
-        logger.error("Annotation payload validation failed", {
-          taskId,
-          batchId,
-          labellerId,
-          r2_output_key,
-          error: validationError.message,
-        });
-        throw validationError;
       }
 
       const submission = new Submission({
@@ -1311,7 +1322,18 @@ export const taskService = {
         batchId: batchId,
         submittedBy: labeller._id,
         r2_output_key,
-        status: 'submitted'
+        status: 'submitted',
+        ...(isCollection ? {
+          collectionMetadata: {
+            transcription: metadata.transcription || null,
+            selectedTone: metadata.selectedTone || null,
+            languageUsed: metadata.languageUsed || null,
+            codeSwitchingUsed: metadata.codeSwitchingUsed || null,
+            deviceInfo: metadata.deviceInfo || null,
+            timezone: metadata.timezone || null,
+            recordedAt: metadata.recordedAt ? new Date(metadata.recordedAt) : null,
+          }
+        } : {})
       });
       await submission.save();
 
@@ -1394,11 +1416,15 @@ export const taskService = {
       if (!task) throw new Error("Task not found");
 
       // Check if dataset is a crowdsourced collection
-      const dataset = await Dataset.findById(task.datasetId).select("isCollection").lean();
+      const dataset = await Dataset.findById(task.datasetId).select("isCollection contentType").lean();
       const isCollection = dataset?.isCollection === true;
 
-      const fileExtension = "json";
-      const contentType = "application/json";
+      const fileExtension = isCollection
+        ? (dataset.contentType === "audio" ? "wav" : "bin")
+        : "json";
+      const contentType = isCollection
+        ? (dataset.contentType === "audio" ? "audio/wav" : "application/octet-stream")
+        : "application/json";
       const r2_output_key = `${task.r2_datasetUrl}/results/${labellerId}/${task.taskId}.${fileExtension}`;
 
       const command = new PutObjectCommand({

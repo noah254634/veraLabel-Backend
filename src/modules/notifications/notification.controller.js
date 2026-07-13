@@ -128,14 +128,15 @@ export const NotificationController = {
   /**
    * POST /api/v1/notifications/send-email
    * Admin only — send a custom formatted email to a recipient.
+   * Accepts structured fields; the server builds the HTML using the base template.
    */
   sendEmail: async (req, res) => {
     try {
-      const { to, subject, html } = req.body;
-      if (!to || !subject || !html) {
-        return res.status(400).json({ message: "to, subject and html are required" });
+      const { to, subject, heading, bodyText, signOff } = req.body;
+      if (!to || !subject || !heading || !bodyText) {
+        return res.status(400).json({ message: "to, subject, heading and bodyText are required" });
       }
-      const result = await NotificationService.sendCustomEmail(to, subject, html);
+      const result = await NotificationService.sendCustomEmail({ to, subject, heading, bodyText, signOff });
       return res.status(200).json(result);
     } catch (err) {
       return res.status(400).json({ message: err.message });

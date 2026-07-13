@@ -108,7 +108,7 @@ export const taskController = {
       return ResponseHandler.success(res, response, "Task flagged for admin review");
     }
 
-    const response = await taskService.submitTask(taskId, labellerId, batchId);
+    const response = await taskService.submitTask(taskId, labellerId, batchId, req.body);
     return ResponseHandler.success(res, response, "Task submitted");
   }),
 

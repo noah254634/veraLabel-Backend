@@ -111,9 +111,14 @@ export const adminService = {
     if (!dataset) throw new Error("Dataset not found");
 
     // DATA INTEGRITY GUARD: Ensure all rows are finalized before marketplace injection
-    if (dataset.rows && dataset.rowsCompleted !== undefined) {
-      if (dataset.rowsCompleted < dataset.rows) {
-        throw new Error(`Integrity_Violation: Batch is incomplete (${dataset.rowsCompleted}/${dataset.rows} rows). Wait for ingestion to finish.`);
+    const verifiedTasksCount = await Submission.countDocuments({ datasetId: id, status: "approved" });
+    const totalTasksCount = await Task.countDocuments({ datasetId: id });
+    const effectiveRows = dataset.rows || totalTasksCount || 0;
+    const effectiveCompleted = dataset.rowsCompleted !== undefined && dataset.rowsCompleted !== null && dataset.rowsCompleted > 0 ? dataset.rowsCompleted : verifiedTasksCount;
+
+    if (effectiveRows > 0) {
+      if (effectiveCompleted < effectiveRows) {
+        throw new Error(`Integrity_Violation: Batch is incomplete (${effectiveCompleted}/${effectiveRows} rows). Wait for ingestion to finish.`);
       }
     }
 
@@ -562,7 +567,16 @@ export const adminService = {
         submissionItems.push({
           submissionId: sub.submissionId,
           outputUrl,
-          labellerTrustScore: trustScore
+          labellerTrustScore: trustScore,
+          ...(dataset.isCollection ? {
+            transcription: sub.collectionMetadata?.transcription || null,
+            selectedTone: sub.collectionMetadata?.selectedTone || null,
+            languageUsed: sub.collectionMetadata?.languageUsed || null,
+            codeSwitchingUsed: sub.collectionMetadata?.codeSwitchingUsed || null,
+            deviceInfo: sub.collectionMetadata?.deviceInfo || null,
+            timezone: sub.collectionMetadata?.timezone || null,
+            recordedAt: sub.collectionMetadata?.recordedAt || null,
+          } : {})
         });
       }
 
@@ -581,6 +595,7 @@ export const adminService = {
       datasetName: dataset.name,
       dataType: dataset.datasetType || "text",
       labellingMethod: dataset.labellingMethod || "classification",
+      isCollection: dataset.isCollection === true,
       tasks: taskItems
     };
 

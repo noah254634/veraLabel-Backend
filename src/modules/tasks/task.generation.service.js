@@ -174,7 +174,7 @@ export const taskGenerationService = {
   /**
    * Bulk approves the tasks in a run, associates them with a real dataset (either existing or dynamically created), and generates batches.
    */
-  approveRunAndBatch: async (runId, { datasetId, datasetName, datasetDescription }) => {
+  approveRunAndBatch: async (runId, { datasetId, datasetName, datasetDescription, price, pricePerBatch }) => {
     const runRecord = await TaskGenerationRun.findOne({ runId });
     if (!runRecord) {
       throw new Error("Task generation run record not found.");
@@ -191,8 +191,8 @@ export const taskGenerationService = {
       const newDataset = await Dataset.create({
         name: datasetName,
         description: datasetDescription || `Dynamic dataset generated for category: ${runRecord.category}`,
-        price: 0,
-        pricePerBatch: 0.42, // default price per batch
+        price: typeof price === 'number' ? price : 0,
+        pricePerBatch: typeof pricePerBatch === 'number' ? pricePerBatch : 0.42, // default price per batch
         datasetType: "audio",
         contentType: "audio",
         labellingMethod: "transcription",
@@ -242,6 +242,15 @@ export const taskGenerationService = {
     if (result.modifiedCount === 0) {
       throw new Error("No pending tasks found to approve for this generation run.");
     }
+
+    // Update dataset rows telemetry
+    dataset.rows = result.modifiedCount;
+    if (dataset.metadata) {
+      dataset.metadata.numRecords = result.modifiedCount;
+    } else {
+      dataset.metadata = { numRecords: result.modifiedCount };
+    }
+    await dataset.save();
 
     // 2. Run the existing batching logic
     await taskService.createBatchesForDataset(dataset._id);

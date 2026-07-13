@@ -41,7 +41,7 @@ const sendEmail = async ({ to, subject, html }) => {
     }
 
     const info = await activeTransporter.sendMail({
-      from: "support@veralabel.dev",
+      from: '"VeraLabel" <support@veralabel.dev>',
       replyTo: "noahkhaemba290@gmail.com",
       to,
       subject,

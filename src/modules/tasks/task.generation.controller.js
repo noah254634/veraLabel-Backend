@@ -1,3 +1,4 @@
+import TaskGenerationRun from "./task.generation.model.js";
 import { taskGenerationService } from "./task.generation.service.js";
 import { asyncHandler, AppError } from "../../middlewares/errorHandler.middleware.js";
 import ResponseHandler from "../../helpers/responseHandler.js";
@@ -53,7 +54,7 @@ export const taskGenerationController = {
 
   approveRunAndBatch: asyncHandler(async (req, res) => {
     const { runId } = req.params;
-    const { datasetId, datasetName, datasetDescription } = req.body;
+    const { datasetId, datasetName, datasetDescription, price, pricePerBatch } = req.body;
 
     if (!datasetId && !datasetName) {
       throw new AppError("Target datasetId or a new datasetName is required", 400);
@@ -62,7 +63,9 @@ export const taskGenerationController = {
     const result = await taskGenerationService.approveRunAndBatch(runId, {
       datasetId,
       datasetName,
-      datasetDescription
+      datasetDescription,
+      price: price !== undefined ? Number(price) : undefined,
+      pricePerBatch: pricePerBatch !== undefined ? Number(pricePerBatch) : undefined
     });
     return ResponseHandler.success(res, result, "Generation run approved and batched successfully");
   })

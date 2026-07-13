@@ -2,6 +2,7 @@ import { firebaseMessaging, isFirebaseReady } from "../../config/firebase.admin.
 import UserVera from "../users/user.model.js";
 import Notification from "./notification.model.js";
 import sendEmail from "../mailer/mailer.js";
+import templates from "../mailer/templates.js";
 
 export const NotificationService = {
   /**
@@ -225,12 +226,14 @@ export const NotificationService = {
   },
 
   /**
-   * Send a custom formatted email to a recipient.
+   * Send a custom admin email using the professional base template.
+   * Accepts structured data and builds the HTML server-side.
    */
-  sendCustomEmail: async (to, subject, html) => {
-    if (!to || !subject || !html) {
-      throw new Error("to, subject, and html are required");
+  sendCustomEmail: async ({ to, subject, heading, bodyText, signOff }) => {
+    if (!to || !subject || !heading || !bodyText) {
+      throw new Error("to, subject, heading, and bodyText are required");
     }
+    const html = templates.customAdminEmailTemplate(heading, bodyText, signOff || '');
     await sendEmail({ to, subject, html });
     return { message: "Email sent successfully" };
   },

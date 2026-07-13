@@ -390,7 +390,7 @@ export const reviewerService = {
       const submission = await Submission.findById(submissionId)
         .populate({
           path: 'taskId',
-          populate: { path: 'datasetId', select: 'name description' }
+          populate: { path: 'datasetId', select: 'name description isCollection' }
         })
         .populate({
           path: 'submittedBy',
@@ -407,12 +407,15 @@ export const reviewerService = {
       const task = submission.taskId;
       if (!task) throw new Error('Associated task not found');
 
+      // Check if dataset is a crowdsourced collection
+      const isCollection = task.datasetId?.isCollection === true;
+
       let taskObject = null;
       if (task.r2_input_taskRef) {
         try {
           const dataset = await Dataset.findById(task.datasetId).select("contentType domain").lean();
           const contentType = (task.contentType || normalizeContentType(task, dataset) || 'text').toLowerCase();
-          if (['image', 'audio', 'video'].includes(contentType)) {
+          if (['image', 'audio', 'video'].includes(contentType) && !isCollection) {
             try {
               // Verify that the object actually exists in R2 first
               await r2ContentFetcher.getContentMetadata(task.r2_input_taskRef);
@@ -440,11 +443,29 @@ export const reviewerService = {
 
       let submissionObject = null;
       if (submission.r2_output_key) {
-        try {
-          const submissionBuffer = await r2ContentFetcher.fetchTaskContent(submission.r2_output_key);
-          submissionObject = JSON.parse(submissionBuffer.toString('utf-8'));
-        } catch (fetchError) {
-          logger.warn('Could not fetch submission content from R2', { taskId: task._id, error: fetchError.message });
+        if (isCollection) {
+          try {
+            const presignedUrl = await r2ContentFetcher.getPresignedUrl(submission.r2_output_key);
+            submissionObject = {
+              audio: presignedUrl,
+              transcription: submission.collectionMetadata?.transcription || null,
+              selectedTone: submission.collectionMetadata?.selectedTone || null,
+              languageUsed: submission.collectionMetadata?.languageUsed || null,
+              codeSwitchingUsed: submission.collectionMetadata?.codeSwitchingUsed || null,
+              deviceInfo: submission.collectionMetadata?.deviceInfo || null,
+              timezone: submission.collectionMetadata?.timezone || null,
+              recordedAt: submission.collectionMetadata?.recordedAt || null
+            };
+          } catch (presignError) {
+            logger.warn('Could not generate presigned URL for collection submission in R2', { submissionId, error: presignError.message });
+          }
+        } else {
+          try {
+            const submissionBuffer = await r2ContentFetcher.fetchTaskContent(submission.r2_output_key);
+            submissionObject = JSON.parse(submissionBuffer.toString('utf-8'));
+          } catch (fetchError) {
+            logger.warn('Could not fetch submission content from R2', { taskId: task._id, error: fetchError.message });
+          }
         }
       }
 
@@ -459,11 +480,31 @@ export const reviewerService = {
 
       const consensusSubmissions = await Promise.all(otherSubmissions.map(async (sub) => {
         let content = null;
-        try {
-          const buffer = await r2ContentFetcher.fetchTaskContent(sub.r2_output_key);
-          content = JSON.parse(buffer.toString('utf-8'));
-        } catch (err) {
-          logger.warn('Failed to fetch other submission content', { submissionId: sub._id });
+        if (sub.r2_output_key) {
+          if (isCollection) {
+            try {
+              const presignedUrl = await r2ContentFetcher.getPresignedUrl(sub.r2_output_key);
+              content = {
+                audio: presignedUrl,
+                transcription: sub.collectionMetadata?.transcription || null,
+                selectedTone: sub.collectionMetadata?.selectedTone || null,
+                languageUsed: sub.collectionMetadata?.languageUsed || null,
+                codeSwitchingUsed: sub.collectionMetadata?.codeSwitchingUsed || null,
+                deviceInfo: sub.collectionMetadata?.deviceInfo || null,
+                timezone: sub.collectionMetadata?.timezone || null,
+                recordedAt: sub.collectionMetadata?.recordedAt || null
+              };
+            } catch (presignError) {
+              logger.warn('Failed to generate presigned URL for other collection submission', { submissionId: sub._id });
+            }
+          } else {
+            try {
+              const buffer = await r2ContentFetcher.fetchTaskContent(sub.r2_output_key);
+              content = JSON.parse(buffer.toString('utf-8'));
+            } catch (err) {
+              logger.warn('Failed to fetch other submission content', { submissionId: sub._id });
+            }
+          }
         }
         return {
           _id: sub._id,
@@ -485,6 +526,7 @@ export const reviewerService = {
         status: submission.status,
         priority: task.priority,
         datasetId: task.datasetId,
+        isCollection: isCollection,
         assignedTo: labeller ? [
           {
             _id: labeller._id,

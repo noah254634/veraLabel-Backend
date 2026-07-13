@@ -118,6 +118,17 @@ const SubmissionSchema = new mongoose.Schema({
     index: true
   },
 
+  // Optional: Crowdsourced collection metadata (text telemetry)
+  collectionMetadata: {
+    transcription: { type: String, default: null },
+    selectedTone: { type: String, default: null },
+    languageUsed: { type: String, default: null },
+    codeSwitchingUsed: { type: Boolean, default: null },
+    deviceInfo: { type: String, default: null },
+    timezone: { type: String, default: null },
+    recordedAt: { type: Date, default: null }
+  },
+
   // Optional metrics
   metrics: {
     timeSpentSeconds: Number,
