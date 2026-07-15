@@ -31,7 +31,7 @@ const getTransporter = () => {
   return transporter;
 };
 
-const sendEmail = async ({ to, subject, html }) => {
+const sendEmail = async ({ to, subject, html, attachments = [] }) => {
   try {
     const activeTransporter = getTransporter();
 
@@ -40,13 +40,19 @@ const sendEmail = async ({ to, subject, html }) => {
       return { skipped: true };
     }
 
-    const info = await activeTransporter.sendMail({
+    const mailOptions = {
       from: '"VeraLabel" <support@veralabel.dev>',
       replyTo: "noahkhaemba290@gmail.com",
       to,
       subject,
       html,
-    });
+    };
+
+    if (attachments.length > 0) {
+      mailOptions.attachments = attachments;
+    }
+
+    const info = await activeTransporter.sendMail(mailOptions);
     logger.info("Email sent:", info.messageId);
   } catch (error) {
     logger.error("Email sending error:", error);

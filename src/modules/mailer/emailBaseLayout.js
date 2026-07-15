@@ -10,36 +10,29 @@
 
 const BRAND = {
   name: 'VeraLabel',
-  tagline: 'AI Data Labelling Platform',
+  tagline: 'Data Annotation Infrastructure for African Language & Medical Imaging',
   supportEmail: 'support@veralabel.dev',
   year: new Date().getFullYear(),
 };
 
 const COLORS = {
-  primary:       '#4f46e5',
-  primaryDark:   '#3730a3',
-  success:       '#10b981',
-  danger:        '#ef4444',
-  warning:       '#f59e0b',
-  neutralBg:     '#f4f4f7',
-  cardBg:        '#ffffff',
-  textPrimary:   '#1e293b',
+  primary: '#4f46e5',
+  primaryDark: '#3730a3',
+  success: '#10b981',
+  danger: '#ef4444',
+  warning: '#f59e0b',
+  neutralBg: '#f4f4f7',
+  cardBg: '#ffffff',
+  textPrimary: '#1e293b',
   textSecondary: '#64748b',
-  textMuted:     '#94a3b8',
-  border:        '#e2e8f0',
-  borderLight:   '#f1f5f9',
+  textMuted: '#94a3b8',
+  border: '#e2e8f0',
+  borderLight: '#f1f5f9',
 };
 
 const FONT_STACK = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
 
-/**
- * @param {Object} options
- * @param {string} [options.preheader]    - Hidden preview text for inbox
- * @param {string}  options.heading       - Email card heading
- * @param {string} [options.headingColor] - Accent color for heading (default: primary)
- * @param {string}  options.content       - Inner HTML body content
- * @returns {string} Complete HTML email document
- */
+
 const baseLayout = ({ preheader = '', heading, headingColor, content }) => {
   const accentColor = headingColor || COLORS.primary;
 

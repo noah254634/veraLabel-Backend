@@ -128,7 +128,8 @@ export const NotificationController = {
   /**
    * POST /api/v1/notifications/send-email
    * Admin only — send a custom formatted email to a recipient.
-   * Accepts structured fields; the server builds the HTML using the base template.
+   * Accepts structured fields via multipart/form-data; optionally attaches uploaded files.
+   * The server builds the HTML using the base template.
    */
   sendEmail: async (req, res) => {
     try {
@@ -136,7 +137,15 @@ export const NotificationController = {
       if (!to || !subject || !heading || !bodyText) {
         return res.status(400).json({ message: "to, subject, heading and bodyText are required" });
       }
-      const result = await NotificationService.sendCustomEmail({ to, subject, heading, bodyText, signOff });
+
+      // Map uploaded files (from multer memory storage) to nodemailer attachment format
+      const attachments = (req.files || []).map((file) => ({
+        filename: file.originalname,
+        content: file.buffer,
+        contentType: file.mimetype,
+      }));
+
+      const result = await NotificationService.sendCustomEmail({ to, subject, heading, bodyText, signOff, attachments });
       return res.status(200).json(result);
     } catch (err) {
       return res.status(400).json({ message: err.message });

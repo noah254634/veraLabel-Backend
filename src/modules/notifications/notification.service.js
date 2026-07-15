@@ -229,12 +229,12 @@ export const NotificationService = {
    * Send a custom admin email using the professional base template.
    * Accepts structured data and builds the HTML server-side.
    */
-  sendCustomEmail: async ({ to, subject, heading, bodyText, signOff }) => {
+  sendCustomEmail: async ({ to, subject, heading, bodyText, signOff, attachments = [] }) => {
     if (!to || !subject || !heading || !bodyText) {
       throw new Error("to, subject, heading, and bodyText are required");
     }
     const html = templates.customAdminEmailTemplate(heading, bodyText, signOff || '');
-    await sendEmail({ to, subject, html });
+    await sendEmail({ to, subject, html, attachments });
     return { message: "Email sent successfully" };
   },
 };

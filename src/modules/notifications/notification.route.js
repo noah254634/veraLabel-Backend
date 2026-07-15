@@ -1,9 +1,16 @@
 import express from "express";
+import multer from "multer";
 import { protectRoute } from "../../middlewares/auth.middleware.js";
 import authorize from "../../middlewares/authorization.middleware.js";
 import { NotificationController } from "./notification.controller.js";
 
 const notificationRouter = express.Router();
+
+// Multer with memory storage for email attachments (max 5 files, 10MB each)
+const emailAttachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+});
 
 // Any authenticated user can register their own token
 notificationRouter.post(
@@ -63,11 +70,12 @@ notificationRouter.post(
   NotificationController.broadcast
 );
 
-// Admin-only: send a custom formatted email
+// Admin-only: send a custom formatted email (with optional file attachments)
 notificationRouter.post(
   "/send-email",
   protectRoute,
   authorize("admin", "superadmin"),
+  emailAttachmentUpload.array("attachments", 5),
   NotificationController.sendEmail
 );
 
