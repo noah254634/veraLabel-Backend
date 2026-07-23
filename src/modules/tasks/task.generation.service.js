@@ -197,8 +197,8 @@ export const taskGenerationService = {
         contentType: "audio",
         labellingMethod: "transcription",
         domain: runRecord.category,
-        status: "approved",
-        isPublished: true,
+        status: "in_progress",
+        isPublished: false,
         isCollection: true,
         maxLabellers: 1
       });
