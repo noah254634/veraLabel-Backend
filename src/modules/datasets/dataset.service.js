@@ -349,9 +349,11 @@ export const datasetService = {
     if (!domain) throw new Error("Domain is required");
     if (!specifications) throw new Error("Specifications is required");
     if (!volume) throw new Error("Volume is required");
-    if (!format) throw new Error("Format is required");
-    if (!fileUrl) throw new Error("File URL is required - upload file first using /datasets/generateUploadUrl");
     if (!timeline) throw new Error("Timeline/SLA is required");
+    const isSourcing = intent === "sourcing" || !fileUrl;
+    if (!isSourcing && !fileUrl) {
+      throw new Error("File URL is required for data labeling requests - upload file first using /datasets/generateUploadUrl");
+    }
     const normalizedLabellingMethod = normalizeLabellingMethod(labellingMethod);
     const normalizedContentType = normalizeContentType(contentType, domain, format);
 
@@ -361,6 +363,7 @@ export const datasetService = {
     
     const priceValue = budget ? parseFloat(budget.toString().replace(/\$|,/g, "")) || 0 : 0;
     const parsedMaxLabellers = maxLabellers ? parseInt(maxLabellers, 10) : 1;
+    const safeFileUrl = fileUrl || "";
 
     const dataset = await Dataset.create({
       type: "custom",
@@ -378,12 +381,12 @@ export const datasetService = {
       timelineDays: timelineDays ? Number(timelineDays) : null,
       intent: intent || null,
       qualityMetrics: qualityMetrics || "",
-      sourceLink: fileUrl,
-      fileUrl: fileUrl,
-      status: "pending",
+      sourceLink: safeFileUrl,
+      fileUrl: safeFileUrl,
+      status: intent === "sourcing" ? "curation_requested" : "pending",
       datasetType: normalizeDatasetType(domain, normalizedLabellingMethod, normalizedContentType),
       datasetFormat: normalizeDatasetFormat(format),
-      filePath: fileUrl,
+      filePath: safeFileUrl,
       isPublished: false,
       price: 0, // Set price to 0 initially; updated after actual pricing / invoice generation
     });

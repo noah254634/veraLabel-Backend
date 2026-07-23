@@ -68,5 +68,11 @@ export const taskGenerationController = {
       pricePerBatch: pricePerBatch !== undefined ? Number(pricePerBatch) : undefined
     });
     return ResponseHandler.success(res, result, "Generation run approved and batched successfully");
+  }),
+
+  deleteRun: asyncHandler(async (req, res) => {
+    const { runId } = req.params;
+    const result = await taskGenerationService.deleteRun(runId);
+    return ResponseHandler.success(res, result, "Generation run deleted successfully");
   })
 };

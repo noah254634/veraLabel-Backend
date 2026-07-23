@@ -64,6 +64,7 @@ router.get("/tasks/runs", taskGenerationController.getRuns);
 router.get("/tasks/runs/:runId/tasks", taskGenerationController.getTasksForRun);
 router.put("/tasks/tasks/:taskId", taskGenerationController.updateTaskText);
 router.post("/tasks/runs/:runId/approve", taskGenerationController.approveRunAndBatch);
+router.delete("/tasks/runs/:runId", taskGenerationController.deleteRun);
 
 router.use("/settings", settingsRouter);
 

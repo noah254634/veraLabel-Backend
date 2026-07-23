@@ -266,5 +266,28 @@ export const taskGenerationService = {
       runStatus: runRecord.status,
       datasetId: targetDatasetId
     };
+  },
+
+  /**
+   * Deletes a generation run and all its associated draft tasks.
+   */
+  deleteRun: async (runId) => {
+    const runRecord = await TaskGenerationRun.findOne({ runId });
+    if (!runRecord) {
+      throw new Error("Task generation run record not found.");
+    }
+
+    // Delete all draft tasks generated for this run
+    const deletedTasksResult = await Task.deleteMany({ runId });
+    
+    // Delete the generation run record itself
+    await TaskGenerationRun.deleteOne({ runId });
+
+    logger.info(`Deleted generation run ${runId} and ${deletedTasksResult.deletedCount} draft tasks.`);
+    return {
+      success: true,
+      runId,
+      deletedTasksCount: deletedTasksResult.deletedCount
+    };
   }
 };
