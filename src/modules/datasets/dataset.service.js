@@ -18,6 +18,7 @@ import Labeller from "../labeller/labeller.model.js";
 import logger from "../../config/logger.js";
 import { createSession } from "../tasks/progress.service.js";
 import { taskService } from "../tasks/task.service.js";
+import { AppError } from "../../middlewares/errorHandler.middleware.js";
 import {
   ALLOWED_LABELLING_METHODS,
   ALLOWED_CONTENT_TYPES,
@@ -627,14 +628,14 @@ export const datasetService = {
   },
 
   downloadDataset: async (datasetId, user) => {
-    if (!datasetId) throw new Error("Dataset ID is required");
+    if (!datasetId) throw new AppError("Dataset ID is required", 400);
     const dataset = await Dataset.findById(datasetId);
-    if (!dataset) throw new Error("Dataset not found");
+    if (!dataset) throw new AppError("Dataset not found", 404);
 
     // Check authorization: Admin, or Buyer who owns/purchased it
     if (user.role !== "admin") {
       if (user.role !== "buyer") {
-        throw new Error("Unauthorized to access this dataset");
+        throw new AppError("Unauthorized to access this dataset", 403);
       }
       
       const isOwner = dataset.buyerId && dataset.buyerId.toString() === user.id;
@@ -642,22 +643,43 @@ export const datasetService = {
         const order = await Order.findOne({
           buyerId: user.id,
           datasetId: dataset._id,
-          status: "approved"
+          $or: [
+            { status: { $in: ["approved", "completed", "paid", "in_progress"] } },
+            { isPaid: true }
+          ]
         });
         if (!order) {
-          throw new Error("Unauthorized: you have not purchased or requested this dataset");
+          throw new AppError("Unauthorized: you have not purchased or requested this dataset", 403);
         }
       }
     }
 
-    if (!dataset.downloadUrl) {
-      throw new Error("Dataset has not been compiled yet. Please check back later or request compilation.");
+    let downloadKey = dataset.downloadUrl || dataset.filePath || dataset.fileUrl || dataset.sourceLink;
+    
+    // Fallback: check task input / dataset references if empty on Dataset document
+    if (!downloadKey) {
+      const sampleTask = await Task.findOne({ datasetId: dataset._id }).lean();
+      if (sampleTask) {
+        downloadKey = sampleTask.r2_url || sampleTask.r2_input_taskRef || sampleTask.r2_datasetUrl;
+      }
     }
 
-    // Generate a secure presigned GET URL for the ZIP file (expires in 1 hour)
+    // Fallback: check submission output references
+    if (!downloadKey) {
+      const sampleSub = await Submission.findOne({ datasetId: dataset._id }).lean();
+      if (sampleSub) {
+        downloadKey = sampleSub.r2_output_key;
+      }
+    }
+
+    if (!downloadKey) {
+      throw new AppError("Dataset package or file is not available for download yet. Please compile dataset assets or verify upload.", 400);
+    }
+
+    // Generate a secure presigned GET URL for the file (expires in 1 hour)
     const getCommand = new GetObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
-      Key: dataset.downloadUrl
+      Key: downloadKey
     });
 
     const presignedUrl = await getSignedUrl(r2, getCommand, { expiresIn: 3600 });
