@@ -676,10 +676,22 @@ export const datasetService = {
       throw new AppError("Dataset package or file is not available for download yet. Please compile dataset assets or verify upload.", 400);
     }
 
-    // Generate a secure presigned GET URL for the file (expires in 1 hour)
+    const slugify = (str) =>
+      String(str || "")
+        .toLowerCase()
+        .trim()
+        .replace(/[\s_]+/g, "_")
+        .replace(/[^\w\-]/g, "") || "dataset";
+
+    const rawExt = downloadKey.split("?")[0].split(".").pop().toLowerCase();
+    const fileExt = (rawExt && rawExt.length <= 4 && /^[a-z0-9]+$/.test(rawExt)) ? rawExt : "zip";
+    const friendlyFilename = `${slugify(dataset.name)}.${fileExt}`;
+
+    // Generate a secure presigned GET URL for the file (expires in 1 hour) with friendly download filename
     const getCommand = new GetObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
-      Key: downloadKey
+      Key: downloadKey,
+      ResponseContentDisposition: `attachment; filename="${friendlyFilename}"`
     });
 
     const presignedUrl = await getSignedUrl(r2, getCommand, { expiresIn: 3600 });
