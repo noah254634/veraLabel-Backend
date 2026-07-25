@@ -394,31 +394,34 @@ const normalizeIncomingTask = (task, index) => {
 
 
 const checkExistingBatchAssignment = async (labellerId) => {
-  const batch = await Batch.findOne({
-    assignedTo: labellerId,
-    status: 'in_progress'
-  }).populate('tasks');
-
-  if (!batch) return null;
-
   const labeller = await Labeller.findById(labellerId);
   if (!labeller) return null;
 
-  const count = await Submission.countDocuments({
-    taskId: { $in: batch.tasks.map(t => t._id) },
-    submittedBy: labeller._id
-  });
+  const batches = await Batch.find({
+    assignedTo: labeller._id,
+    status: 'in_progress'
+  }).populate('tasks').sort({ assignedAt: -1, createdAt: -1 });
 
-  const flaggedCount = await Task.countDocuments({
-    _id: { $in: batch.tasks.map(t => t._id) },
-    status: 'flagged'
-  });
+  for (const batch of batches) {
+    if (!batch.tasks || batch.tasks.length === 0) continue;
 
-  if (count + flaggedCount >= batch.totalTasks) {
-    return null;
+    const taskIds = batch.tasks.map(t => t._id);
+    const count = await Submission.countDocuments({
+      taskId: { $in: taskIds },
+      submittedBy: labeller._id
+    });
+
+    const flaggedCount = await Task.countDocuments({
+      _id: { $in: taskIds },
+      status: 'flagged'
+    });
+
+    if (count + flaggedCount < batch.totalTasks) {
+      return batch;
+    }
   }
 
-  return batch;
+  return null;
 };
 
 const findAndLockAvailableBatch = async (datasetId, labellerId) => {
@@ -1812,11 +1815,7 @@ export const taskService = {
       const labeller = await resolveLabellerDocument(labellerIdentifier);
       if (!labeller) throw new Error("Labeller profile not found");
 
-      const batch = await Batch.findOne({
-        assignedTo: labeller._id,
-        status: 'in_progress'
-      }).populate('tasks').sort({ assignedAt: -1 });
-
+      const batch = await checkExistingBatchAssignment(labeller._id);
       if (!batch) return null;
 
       const submissions = await Submission.find({
@@ -1828,10 +1827,6 @@ export const taskService = {
         _id: { $in: batch.tasks.map(t => t._id) },
         status: 'flagged'
       });
-
-      if (submissions.length + flaggedCount >= batch.totalTasks) {
-        return null;
-      }
 
       // Enrich batch (which sorts and converts to plain object)
       const plainBatch = await enrichBatchWithDataset(batch);

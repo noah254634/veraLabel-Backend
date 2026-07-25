@@ -88,26 +88,57 @@ const normalizeDatasetFormat = (format) => {
 };
 
 export const calculateDatasetTaskCounts = async (datasetId) => {
-  const totalTasksCount = await Task.countDocuments({ datasetId });
+  const [totalTasksCount, verifiedTasksCount, batches] = await Promise.all([
+    Task.countDocuments({ datasetId }),
+    Submission.countDocuments({ datasetId, status: "approved" }),
+    Batch.find({ datasetId }).select("_id tasks assignedTo totalTasks").lean()
+  ]);
 
-  const batches = await Batch.find({ datasetId });
-  let totalCompleted = 0;
-  for (const batch of batches) {
-    const taskIds = batch.tasks;
-    for (const labellerId of batch.assignedTo) {
-      const submissionsCount = await Submission.countDocuments({
-        batchId: batch._id,
-        submittedBy: labellerId
-      });
-      const flaggedCount = await Task.countDocuments({
-        _id: { $in: taskIds },
-        status: 'flagged'
-      });
-      totalCompleted += Math.min(batch.totalTasks, submissionsCount + flaggedCount);
+  if (!batches || batches.length === 0) {
+    return {
+      totalTasksCount,
+      submittedTasksCount: 0,
+      verifiedTasksCount
+    };
+  }
+
+  const batchIds = batches.map(b => b._id);
+  const allTaskIds = batches.flatMap(b => b.tasks || []);
+
+  const [submissionsGrouped, flaggedTasksGrouped] = await Promise.all([
+    Submission.aggregate([
+      { $match: { batchId: { $in: batchIds } } },
+      { $group: { _id: { batchId: "$batchId", submittedBy: "$submittedBy" }, count: { $sum: 1 } } }
+    ]),
+    allTaskIds.length > 0 ? Task.aggregate([
+      { $match: { _id: { $in: allTaskIds }, status: "flagged" } },
+      { $group: { _id: "$batchId", count: { $sum: 1 } } }
+    ]) : Promise.resolve([])
+  ]);
+
+  const subMap = new Map();
+  for (const s of submissionsGrouped) {
+    if (s._id?.batchId && s._id?.submittedBy) {
+      subMap.set(`${s._id.batchId.toString()}_${s._id.submittedBy.toString()}`, s.count);
     }
   }
 
-  const verifiedTasksCount = await Submission.countDocuments({ datasetId, status: "approved" });
+  const flagMap = new Map();
+  for (const f of flaggedTasksGrouped) {
+    if (f._id) {
+      flagMap.set(f._id.toString(), f.count);
+    }
+  }
+
+  let totalCompleted = 0;
+  for (const batch of batches) {
+    const fCount = flagMap.get(batch._id.toString()) || 0;
+    for (const labellerId of (batch.assignedTo || [])) {
+      const subCount = subMap.get(`${batch._id.toString()}_${labellerId.toString()}`) || 0;
+      totalCompleted += Math.min(batch.totalTasks, subCount + fCount);
+    }
+  }
+
   const submittedTasksCount = Math.max(0, totalCompleted - verifiedTasksCount);
 
   return {
