@@ -568,7 +568,7 @@ export const adminService = {
           submissionId: sub.submissionId,
           outputUrl,
           labellerTrustScore: trustScore,
-          ...(dataset.isCollection ? {
+          ...((dataset.isCollection || sub.collectionMetadata) ? {
             transcription: sub.collectionMetadata?.transcription || null,
             selectedTone: sub.collectionMetadata?.selectedTone || null,
             languageUsed: sub.collectionMetadata?.languageUsed || null,
