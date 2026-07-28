@@ -107,7 +107,9 @@ export const buyerService = {
         },
         {
           $addFields: {
-            orderNumber: { $arrayElemAt: ['$orderInfo.orderNumber', 0] }
+            orderNumber: { $arrayElemAt: ['$orderInfo.orderNumber', 0] },
+            downloadedAt: { $arrayElemAt: ['$orderInfo.downloadedAt', 0] },
+            buyerDownloadsCount: { $arrayElemAt: ['$orderInfo.buyerDownloadsCount', 0] }
           }
         }
       ]),
@@ -138,6 +140,8 @@ export const buyerService = {
         status: p.status === 'approved' ? "done" : "pending",
         entryType: 'purchase',
         isPaid: true,
+        downloadedAt: p.downloadedAt,
+        buyerDownloadsCount: p.buyerDownloadsCount || 0,
         itemsCompleted: dataset?.metadata?.numRecords || 0,
         actualRows: dataset?.metadata?.numRecords || 0,
         processingProgress: 100,
@@ -187,7 +191,7 @@ export const buyerService = {
       acc.totalSpent += budgetVal;
 
       const isActive = item.status === "done" || (item.entryType === 'custom' && ["in_progress", "completed"].includes(item.status));
-      const isPending = ["pending", "processing"].includes(item.status);
+      const isPending = ["pending", "processing", "curation_requested"].includes(item.status);
 
       if (isActive) {
         acc.activeAssets += 1;

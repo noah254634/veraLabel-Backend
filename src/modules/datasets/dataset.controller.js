@@ -36,7 +36,7 @@ export const datasetController = {
     if (userRole === "labeler") {
       filter = { status: { $in: ["approved", "in_progress", "processing"] } };
     }
-    const datasets = await datasetService.getAllDatasets(filter);
+    const datasets = await datasetService.getAllDatasets(filter, req.user);
     return ResponseHandler.success(res, { datasets }, "All datasets fetched");
   }),
 
@@ -66,7 +66,7 @@ export const datasetController = {
   }),
 
   createDataset: asyncHandler(async (req, res) => {
-    const { name, domain, specifications, volume, format, budget, fileUrl, timeline, qualityMetrics, instructionId, buyerAnswers, labellingMethod, contentType, intent, timelineDays, maxLabellers } = req.body;
+    const { name, domain, specifications, volume, format, budget, fileUrl, timeline, qualityMetrics, instructionId, buyerAnswers, labellingMethod, contentType, intent, timelineDays, maxLabellers, targetLocations, allowedCountries, targetLanguages, isGlobalAccess } = req.body;
     const buyerId = req.buyer?._id;
     if (!buyerId) throw new AppError("Unauthorized", 401);
     if (!name) throw new AppError("Dataset name is required", 400);
@@ -84,11 +84,13 @@ export const datasetController = {
       instructionId,
       intent,
       timelineDays,
-      maxLabellers
+      maxLabellers,
+      isGlobalAccess
     });
 
     const response = await datasetService.createDataset(
-      name, domain, specifications, volume, format, budget, fileUrl, timeline, qualityMetrics, buyerId, instructionId, buyerAnswers, labellingMethod, contentType, intent, timelineDays, maxLabellers
+      name, domain, specifications, volume, format, budget, fileUrl, timeline, qualityMetrics, buyerId, instructionId, buyerAnswers, labellingMethod, contentType, intent, timelineDays, maxLabellers,
+      { targetLocations, allowedCountries, targetLanguages, isGlobalAccess }
     );
 
     logger.info("createDataset completed successfully", {

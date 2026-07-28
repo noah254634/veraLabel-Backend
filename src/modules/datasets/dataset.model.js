@@ -106,7 +106,7 @@ const datasetSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "processing", "approved", "taken_down", "rejected", "awaiting_payment", "in_progress", "completed", "registration_failed", "cancelled"],
+      enum: ["pending", "processing", "approved", "taken_down", "rejected", "awaiting_payment", "in_progress", "completed", "registration_failed", "cancelled", "curation_requested"],
       default: "pending",
     },
     datasetFormat: {
@@ -241,9 +241,27 @@ const datasetSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    targetLocations: [
+      {
+        country: { type: String, trim: true },
+        region: { type: String, trim: true },
+        city: { type: String, trim: true },
+      },
+    ],
+    allowedCountries: [{ type: String, uppercase: true, trim: true }],
+    targetLanguages: [{ type: String, lowercase: true, trim: true }],
+    isGlobalAccess: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,
   },
 );
+
+datasetSchema.index({ status: 1, isPublished: 1, isGlobalAccess: 1 });
+datasetSchema.index({ status: 1, isPublished: 1, allowedCountries: 1 });
+datasetSchema.index({ status: 1, isPublished: 1, "targetLocations.region": 1 });
+
 export default mongoose.model("Dataset", datasetSchema);

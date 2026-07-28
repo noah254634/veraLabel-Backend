@@ -1711,6 +1711,34 @@ export const taskService = {
       const labeller = await resolveLabellerDocument(labellerIdentifier);
       if (!labeller) throw new Error("Labeller profile not found");
 
+      // Verify location eligibility if dataset has location restrictions
+      if (dataset.isGlobalAccess === false) {
+        const country = labeller?.profile?.location?.country?.trim()?.toUpperCase() || "";
+        const region = labeller?.profile?.location?.region?.trim()?.toLowerCase() || "";
+        const city = labeller?.profile?.location?.city?.trim()?.toLowerCase() || "";
+
+        let isEligible = false;
+        if (Array.isArray(dataset.allowedCountries) && dataset.allowedCountries.length > 0) {
+          if (country && dataset.allowedCountries.includes(country)) {
+            isEligible = true;
+          }
+        }
+        if (Array.isArray(dataset.targetLocations) && dataset.targetLocations.length > 0) {
+          for (const loc of dataset.targetLocations) {
+            const locCountry = (loc.country || "").trim().toUpperCase();
+            const locRegion = (loc.region || "").trim().toLowerCase();
+            const locCity = (loc.city || "").trim().toLowerCase();
+            if (locCountry && country === locCountry) isEligible = true;
+            if (locRegion && (region === locRegion || city === locRegion)) isEligible = true;
+            if (locCity && city === locCity) isEligible = true;
+          }
+        }
+
+        if (!isEligible && (dataset.allowedCountries?.length > 0 || dataset.targetLocations?.length > 0)) {
+          throw new Error("This mission dataset is restricted to labellers in a different geographic region.");
+        }
+      }
+
       const existingBatch = await checkExistingBatchAssignment(labeller._id);
       if (existingBatch) {
         if (existingBatch.datasetId.toString() !== datasetId.toString()) {

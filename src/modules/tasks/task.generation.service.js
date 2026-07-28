@@ -185,9 +185,38 @@ export const taskGenerationService = {
     }
 
     let targetDatasetId = datasetId;
+    const regionTags = runRecord.regionTags || [];
+
+    const allowedCountries = [];
+    const targetLocations = [];
+    const targetLanguages = [];
+
+    regionTags.forEach(tag => {
+      const lower = tag.toLowerCase().trim();
+      if (lower.includes("kenya") || lower.includes("nairobi") || lower.includes("swahili") || lower.includes("bungoma")) {
+        if (!allowedCountries.includes("KE")) allowedCountries.push("KE");
+        targetLocations.push({ country: "Kenya", region: tag });
+        if (!targetLanguages.includes("sw")) targetLanguages.push("sw");
+      } else if (lower.includes("nigeria") || lower.includes("lagos") || lower.includes("kano") || lower.includes("hausa")) {
+        if (!allowedCountries.includes("NG")) allowedCountries.push("NG");
+        targetLocations.push({ country: "Nigeria", region: tag });
+        if (!targetLanguages.includes("ha")) targetLanguages.push("ha");
+      } else if (lower.includes("ghana")) {
+        if (!allowedCountries.includes("GH")) allowedCountries.push("GH");
+        targetLocations.push({ country: "Ghana", region: tag });
+      } else if (lower.includes("tanzania")) {
+        if (!allowedCountries.includes("TZ")) allowedCountries.push("TZ");
+        targetLocations.push({ country: "Tanzania", region: tag });
+        if (!targetLanguages.includes("sw")) targetLanguages.push("sw");
+      } else if (tag.trim()) {
+        targetLocations.push({ region: tag });
+      }
+    });
+
+    const isGlobalAccess = allowedCountries.length === 0 && targetLocations.length === 0;
 
     if (!targetDatasetId && datasetName) {
-      // Dynamic dataset creation
+      // Dynamic dataset creation with location targeting
       const newDataset = await Dataset.create({
         name: datasetName,
         description: datasetDescription || `Dynamic dataset generated for category: ${runRecord.category}`,
@@ -200,10 +229,14 @@ export const taskGenerationService = {
         status: "in_progress",
         isPublished: false,
         isCollection: true,
-        maxLabellers: 1
+        maxLabellers: 1,
+        allowedCountries,
+        targetLocations,
+        targetLanguages,
+        isGlobalAccess
       });
       targetDatasetId = newDataset._id;
-      logger.info(`Dynamically created dataset "${datasetName}" (ID: ${targetDatasetId}) for generation run ${runId}`);
+      logger.info(`Dynamically created dataset "${datasetName}" (ID: ${targetDatasetId}) with location rules for run ${runId}`);
     }
 
     if (!targetDatasetId) {
@@ -215,8 +248,16 @@ export const taskGenerationService = {
       throw new Error("Target dataset node not found.");
     }
 
+    // Update location metadata on existing dataset if not set
+    if (dataset && (allowedCountries.length > 0 || targetLocations.length > 0)) {
+      dataset.allowedCountries = Array.from(new Set([...(dataset.allowedCountries || []), ...allowedCountries]));
+      dataset.targetLocations = [...(dataset.targetLocations || []), ...targetLocations];
+      dataset.targetLanguages = Array.from(new Set([...(dataset.targetLanguages || []), ...targetLanguages]));
+      dataset.isGlobalAccess = isGlobalAccess;
+      await dataset.save();
+    }
+
     // Determine language from region tags or defaults
-    const regionTags = runRecord.regionTags || [];
     let expectedLanguage = "Swahili";
     if (regionTags.some(tag => tag.toLowerCase().includes("english") || tag.toLowerCase().includes("west-africa"))) {
       expectedLanguage = "English";

@@ -30,6 +30,52 @@ import {
 const ALLOWED_LABELLING_METHODS_SET = new Set(ALLOWED_LABELLING_METHODS);
 const ALLOWED_CONTENT_TYPES_SET = new Set(ALLOWED_CONTENT_TYPES);
 
+const COUNTRY_NAME_TO_CODE = {
+  "kenya": "KE",
+  "nigeria": "NG",
+  "ghana": "GH",
+  "tanzania": "TZ",
+  "south africa": "ZA",
+  "uganda": "UG",
+  "rwanda": "RW",
+  "ethiopia": "ET",
+  "united states": "US",
+  "usa": "US",
+  "us": "US",
+  "united kingdom": "GB",
+  "uk": "GB",
+  "britain": "GB",
+  "canada": "CA",
+  "germany": "DE",
+  "france": "FR",
+  "india": "IN",
+  "egypt": "EG",
+  "senegal": "SN",
+  "zambia": "ZM",
+  "zimbabwe": "ZW"
+};
+
+export const normalizeCountryCodes = (input) => {
+  if (!input) return [];
+  const rawList = Array.isArray(input)
+    ? input
+    : String(input).split(",").map(s => s.trim());
+
+  const result = new Set();
+  for (const item of rawList) {
+    if (!item) continue;
+    const clean = item.trim().toLowerCase();
+    if (COUNTRY_NAME_TO_CODE[clean]) {
+      result.add(COUNTRY_NAME_TO_CODE[clean]);
+    } else if (clean.length === 2) {
+      result.add(clean.toUpperCase());
+    } else {
+      result.add(item.trim().toUpperCase());
+    }
+  }
+  return Array.from(result);
+};
+
 const normalizeLabellingMethod = (value) => {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) throw new Error("labellingMethod is required");
@@ -182,9 +228,8 @@ export const datasetService = {
     const datasets = await Dataset.aggregate([
       {
         $match: {
-          //visibility: "public",
+          type: "marketplace",
           isPublished: true,
-          // isVerified: true,
         },
       },
       {
@@ -211,8 +256,40 @@ export const datasetService = {
     return datasets;
   },
 
-  getAllDatasets: async (filter = {}) => {
-    const datasets = await Dataset.find(filter).sort({ createdAt: -1 });
+  getAllDatasets: async (filter = {}, user = null) => {
+    let finalFilter = { ...filter };
+
+    if (user && (user.role === "labeler" || user.role === "labeller")) {
+      const labeller = await Labeller.findOne({ userId: user._id || user.id }).select("profile").lean();
+      const country = labeller?.profile?.location?.country?.trim() || "";
+      const region = labeller?.profile?.location?.region?.trim() || "";
+      const city = labeller?.profile?.location?.city?.trim() || "";
+
+      const locationConditions = [
+        { isGlobalAccess: { $ne: false } },
+        { targetLocations: { $size: 0 } }
+      ];
+
+      if (country) {
+        locationConditions.push({ allowedCountries: { $in: [country.toUpperCase()] } });
+        locationConditions.push({ "targetLocations.country": { $regex: new RegExp(`^${country}$`, "i") } });
+      }
+
+      if (region) {
+        locationConditions.push({ "targetLocations.region": { $regex: new RegExp(`^${region}$`, "i") } });
+      }
+
+      if (city) {
+        locationConditions.push({ "targetLocations.city": { $regex: new RegExp(`^${city}$`, "i") } });
+      }
+
+      finalFilter = {
+        ...finalFilter,
+        $or: locationConditions
+      };
+    }
+
+    const datasets = await Dataset.find(finalFilter).sort({ createdAt: -1 });
     return await Promise.all(datasets.map(async (d) => {
       const obj = d.toObject ? d.toObject() : d;
       const counts = await calculateDatasetTaskCounts(obj._id);
@@ -373,7 +450,8 @@ export const datasetService = {
     contentType,
     intent,
     timelineDays,
-    maxLabellers
+    maxLabellers,
+    locationOptions = {}
   ) => {
     const buyerExists = await Buyer.findById(buyerId);
     if (!buyerExists) throw new Error("Unauthorized access or buyer profile not found");
@@ -421,6 +499,10 @@ export const datasetService = {
       filePath: safeFileUrl,
       isPublished: false,
       price: 0, // Set price to 0 initially; updated after actual pricing / invoice generation
+      targetLocations: locationOptions.targetLocations || [],
+      allowedCountries: normalizeCountryCodes(locationOptions.allowedCountries || []),
+      targetLanguages: locationOptions.targetLanguages || [],
+      isGlobalAccess: locationOptions.isGlobalAccess !== undefined ? Boolean(locationOptions.isGlobalAccess) : true,
     });
 
     if (instructionId) {
@@ -644,13 +726,18 @@ export const datasetService = {
           buyerId: user.id,
           datasetId: dataset._id,
           $or: [
-            { status: { $in: ["approved", "completed", "paid", "in_progress"] } },
+            { status: { $in: ["approved", "completed", "paid"] } },
             { isPaid: true }
           ]
         });
         if (!order) {
           throw new AppError("Unauthorized: you have not purchased or requested this dataset", 403);
         }
+      }
+
+      // Rule 1: Enforce completed & verified status for BOTH custom and marketplace datasets
+      if (!["completed", "approved"].includes(dataset.status)) {
+        throw new AppError("Dataset processing is incomplete or pending audit verification. Download is locked until all labeling and verification tasks are fulfilled.", 400);
       }
     }
 
@@ -695,6 +782,26 @@ export const datasetService = {
     });
 
     const presignedUrl = await getSignedUrl(r2, getCommand, { expiresIn: 3600 });
+
+    // Track global dataset download count metrics
+    dataset.downloadsCount = (dataset.downloadsCount || 0) + 1;
+    await dataset.save();
+
+    // Track per-buyer order download timestamp & count
+    if (user && (user.role === "buyer" || user.id)) {
+      try {
+        await Order.findOneAndUpdate(
+          { datasetId: dataset._id, buyerId: user.id || user._id },
+          { 
+            $set: { downloadedAt: new Date() },
+            $inc: { buyerDownloadsCount: 1 }
+          }
+        );
+      } catch (err) {
+        logger.warn("Failed to update per-buyer order download record", { datasetId: dataset._id, userId: user.id, error: err.message });
+      }
+    }
+
     return presignedUrl;
   }
 };
